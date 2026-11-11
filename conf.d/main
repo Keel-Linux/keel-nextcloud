@@ -1,0 +1,108 @@
+#!/bin/bash -ex
+# Nextcloud under /var/www/nextcloud, nginx serving it through PHP-FPM on
+# both ports, Redis on its socket, and no installation: the first boot
+# (overlay firstboot.d/40nextcloud) makes the site from the instance
+# description, because a layer is built once and reused by every machine,
+# and a secret chosen here would be the same everywhere (decision 0086).
+#
+# The schema is not made here either. A schema in the image is a local
+# database on a node that becomes a replica, and keel refuses to replace it
+# without --destroy-local-database.
+#
+# Not run on a real build yet: the prototype has no image (0086).
+
+NCROOT=/var/www/nextcloud
+NCDATA=/var/lib/nextcloud/data
+WEB_USER=www-data
+TOOLS=/usr/local/lib/keel-build
+# Nextcloud is not a Debian package and is not in our archive, so the
+# release is pinned by digest and checked twice: against this digest, and
+# against the signature of the key "Nextcloud Security"
+# (28806A878AE423A28372792ED75899B9A724937A, keys/nextcloud-security.gpg).
+# 35.0.2: upstream 2026-10-15, checked on CT 9380 on 2026-11-11.
+NC_VERSION=35.0.2
+NC_OC_VERSION=35.0.2.2
+NC_ARCHIVE_SHA256=dfc7955eaec5621de90e031d10f76006173b3f3e31d5d6e174821d1da14f162d
+NC_URL="https://download.nextcloud.com/server/releases/nextcloud-${NC_VERSION}.tar.bz2"
+
+if [[ -n "$FAB_HTTP_PROXY" ]]; then
+    export http_proxy="$FAB_HTTP_PROXY" https_proxy="$FAB_HTTP_PROXY"
+fi
+
+fatal() { echo "fatal [conf.d/main]: $*" >&2; exit 1; }
+
+# The code tree, pinned and signed
+tmp=$(mktemp -d)
+curl --proto '=https' --tlsv1.2 -fsSL "$NC_URL" -o "$tmp/nc.tar.bz2"
+curl --proto '=https' --tlsv1.2 -fsSL "$NC_URL.asc" -o "$tmp/nc.tar.bz2.asc"
+echo "$NC_ARCHIVE_SHA256  $tmp/nc.tar.bz2" | sha256sum --check --strict
+gpgv --keyring "$TOOLS/nextcloud-security.gpg" "$tmp/nc.tar.bz2.asc" "$tmp/nc.tar.bz2"
+rm -rf "$NCROOT"
+mkdir -p "$tmp/unpack"
+tar -xjf "$tmp/nc.tar.bz2" -C "$tmp/unpack"
+mv "$tmp/unpack/nextcloud" "$NCROOT"
+rm -rf "$tmp"
+grep -q "OC_Version = array(${NC_OC_VERSION//./,})" "$NCROOT/version.php" \
+    || fatal "the unpacked tree is not Nextcloud $NC_OC_VERSION"
+
+# Ownership: the code is root's. The web user writes config/ and
+# custom_apps/ only, and the data directory outside the web root.
+chown -R root:root "$NCROOT"
+find "$NCROOT" -type d -exec chmod 0755 {} +
+rm -f "$NCROOT/config/CAN_INSTALL"
+chown -R "$WEB_USER:$WEB_USER" "$NCROOT/config"
+install -d -o "$WEB_USER" -g "$WEB_USER" -m 0750 "$NCROOT/custom_apps" \
+    /var/lib/nextcloud "$NCDATA" /var/log/nextcloud
+[ ! -e "$NCROOT/config/config.php" ] || fatal "the layer must not carry a config.php"
+
+# Redis: the settings of 20-keel-nextcloud.conf, on its socket, with the
+# group redis for the web user
+grep -qxF 'include /etc/redis/redis.conf.d/*.conf' /etc/redis/redis.conf \
+    || echo 'include /etc/redis/redis.conf.d/*.conf' >> /etc/redis/redis.conf
+usermod -a -G redis "$WEB_USER"
+
+# The stack check of lnmp is not part of a Nextcloud product
+rm -rf /usr/lib/inithooks/firstboot.d/40lnmp-check \
+    /etc/nginx/keel-default.d/50-keel-lnmp.conf \
+    /usr/share/keel-lnmp/www
+if [ -d /usr/share/keel-lnmp ] && [ -z "$(ls -A /usr/share/keel-lnmp)" ]; then
+    rmdir /usr/share/keel-lnmp
+fi
+
+# nginx: would it start with this route? On a stand-in for the default
+# site, because the real one names the certificate of the first boot.
+ROUTE=/etc/nginx/keel-default.d/60-keel-nextcloud.conf
+[ -f "$ROUTE" ] || fatal "$ROUTE is not in the image"
+grep -qxF 'include /etc/nginx/keel-default.d/*.conf;' /etc/nginx/snippets/keel-web-site.conf \
+    || fatal "the default site of keel-web does not include keel-default.d: keel-web 0.4.0 is the least"
+NGINX_TEST=/etc/nginx/keel-nextcloud-test.conf
+cat > "$NGINX_TEST" <<'EOF'
+pid /run/keel-nextcloud-test.pid;
+error_log /dev/null;
+events { }
+http {
+    include /etc/nginx/mime.types;
+    server {
+        listen 127.0.0.1:65080 default_server;
+        root /var/www/keel-default;
+        include /etc/nginx/keel-default.d/*.conf;
+        location = /keel-health { try_files /.keel-health-is-no-file =204; }
+        location / { try_files $uri $uri/ =404; }
+    }
+}
+EOF
+nginx -t -c "$NGINX_TEST"
+rm -f "$NGINX_TEST"
+
+# The units of the overlay: the gate is started by the first boot, the
+# cron timer runs only while the gate has opened the site
+systemctl enable keel-nextcloud-cron.timer
+
+# The manifest, validated along lnmp, web and core on this tree
+keel manifest validate nextcloud
+
+# The image as a first boot of Nextcloud starts from
+"$TOOLS/keel-nextcloud-image-check"
+rm -rf "$TOOLS"
+
+rm -rf /var/lib/apt/lists/*

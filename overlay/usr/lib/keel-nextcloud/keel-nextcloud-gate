@@ -1,0 +1,91 @@
+#!/bin/bash
+# The gate of keel-nextcloud (decision 0086): run by keel-nextcloud-gate.timer
+# every few seconds. It opens the route of the site (the mark NEXTCLOUD_OPEN,
+# which 60-keel-nextcloud.conf reads) only on the node that takes writes.
+#
+# Why: a node with a read-only database cannot serve sync clients, not
+# even for reads, and file locks are correct only while every serving node
+# uses the same Redis (first test). Each node has its own Redis, so only
+# one node may serve: the one whose database takes writes, which is the
+# holder of the VIP on a pair (0049).
+#
+# When the node becomes the writer, its Redis may hold a cache and locks of
+# an earlier time, so the gate empties it before it opens. The sessions are
+# not lost by that: Nextcloud logs a browser in again from oc_authtoken
+# (first test).
+#
+# On a node that does not take writes the gate also follows an upgrade of
+# the primary: when the database is at the version of the code and
+# config.php is not, it copies the version (first test: that is all a
+# replica needs).
+#
+#   keel-nextcloud-gate          one pass
+#   keel-nextcloud-gate --state  print open or closed, change nothing
+set -u
+
+NEXTCLOUD_LIB="${NEXTCLOUD_LIB:-/usr/lib/inithooks/lib/nextcloud.sh}"
+# shellcheck source=../inithooks/lib/nextcloud.sh
+source "$NEXTCLOUD_LIB"
+
+fatal() { echo "keel-nextcloud-gate: $*" >&2; exit 1; }
+
+redis_cli() {
+    REDISCLI_AUTH="$(redis_pass)" redis-cli --no-auth-warning --user "$NEXTCLOUD_REDIS_USER" \
+        -s "$NEXTCLOUD_REDIS_SOCKET" "$@"
+}
+
+# redis_pass: the password of the Redis account, read from the pair file.
+# The PHP code is in single quotes on purpose (SC2016).
+# shellcheck disable=SC2016
+redis_pass() {
+    php -r '$CONFIG = []; include $argv[1]; echo $CONFIG["redis"]["password"] ?? "";' \
+        "$NEXTCLOUD_PAIR_CONFIG"
+}
+
+ready=no
+[[ -e "$NEXTCLOUD_READY" ]] && ready=yes
+role_text=$(cat "$NEXTCLOUD_ROLE_FILE" 2> /dev/null || true)
+read_only=$(mysql --batch --skip-column-names --execute='SELECT @@global.read_only' 2> /dev/null) \
+    || read_only=unknown
+after=$(nextcloud_gate "$ready" "$role_text" "$read_only")
+before=closed
+[[ -e "$NEXTCLOUD_OPEN" ]] && before=open
+
+if [[ "${1-}" == --state ]]; then
+    echo "$after"
+    exit 0
+fi
+
+case $(nextcloud_gate_action "$before" "$after") in
+    flush-open)
+        answer=$(redis_cli FLUSHALL 2>&1) || fatal "Redis did not answer: the site stays closed"
+        [[ "$answer" == OK ]] || fatal "Redis refused FLUSHALL ($answer): the site stays closed"
+        mkdir -p "$(dirname "$NEXTCLOUD_OPEN")"
+        : > "$NEXTCLOUD_OPEN" || fatal "cannot write $NEXTCLOUD_OPEN"
+        logger -t keel-nextcloud "the node takes writes: Redis emptied, the site is open"
+        ;;
+    close)
+        rm -f "$NEXTCLOUD_OPEN"
+        logger -t keel-nextcloud "the node does not take writes (read_only $read_only): the site is closed"
+        ;;
+esac
+
+# A node that does not serve follows an upgrade of the primary. The PHP
+# code is in single quotes on purpose (SC2016).
+# shellcheck disable=SC2016
+if [[ "$after" == closed && "$ready" == yes && "$read_only" != unknown ]]; then
+    code=$(nextcloud_code_version "$NEXTCLOUD_ROOT/version.php") || exit 0
+    config=$(runuser -u "$NEXTCLOUD_WEB_USER" -- php -r \
+        '$CONFIG = []; include $argv[1]; echo $CONFIG["version"] ?? "";' "$NEXTCLOUD_CONFIG")
+    migration=$(nextcloud_newest_core_migration "$NEXTCLOUD_ROOT/core/Migrations") || exit 0
+    db_name=$(runuser -u "$NEXTCLOUD_WEB_USER" -- php -r \
+        '$CONFIG = []; include $argv[1]; echo $CONFIG["dbname"] ?? "";' "$NEXTCLOUD_CONFIG")
+    [[ $db_name =~ $NEXTCLOUD_IDENT_RE ]] || exit 0
+    rows=$(mysql --batch --skip-column-names --execute="SELECT COUNT(*) FROM \`$db_name\`.oc_migrations WHERE app='core' AND version='$migration'" 2> /dev/null) || exit 0
+    if [[ $(nextcloud_follow_action "$code" "$config" "$rows") == set ]]; then
+        runuser -u "$NEXTCLOUD_WEB_USER" -- php "$NEXTCLOUD_ROOT/occ" config:system:set version --value="$code" > /dev/null \
+            || fatal "cannot set the version $code in config.php"
+        logger -t keel-nextcloud "the database is at $code: config.php follows"
+    fi
+fi
+exit 0

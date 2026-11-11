@@ -1,0 +1,44 @@
+#!/bin/bash
+# The image as a first boot of Nextcloud starts from (conf.d/main runs it
+# on the tree it builds): the code tree owned by root with no config.php,
+# the writable directories, the route, the units, the manifest, Redis on
+# its socket and no check page of lnmp. Each failure is one line; the exit
+# code is the number of failures. ROOT points it at another tree (tests).
+ROOT="${ROOT:-}"
+NCROOT="$ROOT/var/www/nextcloud"
+failures=0
+
+fail() { echo "image check: $*" >&2; failures=$((failures + 1)); }
+
+# owner PATH: the owner and group of PATH, user:group
+owner() { stat -c '%U:%G' "$1" 2> /dev/null; }
+
+[[ -f "$NCROOT/version.php" ]] || fail "no Nextcloud code in $NCROOT"
+[[ $(owner "$NCROOT/version.php") == root:root ]] || fail "$NCROOT/version.php is not root's"
+[[ ! -e "$NCROOT/config/config.php" ]] || fail "the image carries a config.php"
+[[ ! -e "$NCROOT/config/keel-pair.config.php" ]] || fail "the image carries keel-pair.config.php"
+[[ ! -e "$NCROOT/config/CAN_INSTALL" ]] || fail "the image carries CAN_INSTALL"
+for dir in "$NCROOT/config" "$NCROOT/custom_apps" "$ROOT/var/lib/nextcloud/data" "$ROOT/var/log/nextcloud"; do
+    [[ -d "$dir" ]] || { fail "no directory $dir"; continue; }
+    [[ $(owner "$dir") == "${WEB_OWNER:-www-data:www-data}" ]] || fail "$dir is not the web user's"
+done
+for file in /etc/nginx/keel-default.d/60-keel-nextcloud.conf \
+        /etc/nginx/keel-front.d/60-keel-nextcloud.conf \
+        /etc/nginx/keel-static.d/60-keel-nextcloud.conf \
+        /etc/redis/redis.conf.d/20-keel-nextcloud.conf \
+        /etc/systemd/system/keel-nextcloud-gate.timer \
+        /etc/systemd/system/keel-nextcloud-cron.timer \
+        /usr/lib/keel-nextcloud/keel-nextcloud-gate \
+        /usr/lib/inithooks/firstboot.d/40nextcloud \
+        /usr/share/keel/appliances/nextcloud.yaml; do
+    [[ -e "$ROOT$file" ]] || fail "$file is not in the image"
+done
+[[ ! -e "$ROOT/etc/redis/redis.conf.d/50-keel-nextcloud-acl.conf" ]] || fail "the image carries the Redis ACL"
+[[ ! -e "$ROOT/etc/php/8.4/fpm/pool.d/zz-keel-nextcloud.conf" ]] || fail "the image carries the session pool"
+grep -qxF 'include /etc/redis/redis.conf.d/*.conf' "$ROOT/etc/redis/redis.conf" 2> /dev/null \
+    || fail "redis.conf does not include redis.conf.d"
+for gone in /usr/lib/inithooks/firstboot.d/40lnmp-check /etc/nginx/keel-default.d/50-keel-lnmp.conf; do
+    [[ ! -e "$ROOT$gone" ]] || fail "$gone of lnmp is still there"
+done
+[[ ! -e "$ROOT/run/keel-nextcloud/open" ]] || fail "the image carries an open gate"
+exit "$failures"

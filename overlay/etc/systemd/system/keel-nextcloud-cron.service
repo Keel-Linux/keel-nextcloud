@@ -1,0 +1,11 @@
+[Unit]
+Description=keel-nextcloud: the background jobs of Nextcloud, on the node that takes writes
+# The gate writes this mark only on the node whose database takes writes,
+# so no background job writes on a read-only node (first test: cron.php
+# fails there with code 1).
+ConditionPathExists=/run/keel-nextcloud/open
+
+[Service]
+Type=oneshot
+User=www-data
+ExecStart=/usr/bin/php -f /var/www/nextcloud/cron.php

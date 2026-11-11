@@ -1,0 +1,9 @@
+#!/bin/bash
+# keel-occ: occ of Nextcloud, as the web user, from any directory.
+#
+#   keel-occ status
+#   keel-occ upgrade        (on the node that takes writes only)
+NEXTCLOUD_ROOT="${NEXTCLOUD_ROOT:-/var/www/nextcloud}"
+NEXTCLOUD_WEB_USER="${NEXTCLOUD_WEB_USER:-www-data}"
+cd / || exit 1
+exec runuser -u "$NEXTCLOUD_WEB_USER" -- php "$NEXTCLOUD_ROOT/occ" "$@"

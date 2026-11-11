@@ -1,0 +1,29 @@
+#include <turnkey/base>
+
+/* The parent layer, lnmp, carries nginx (through Keel Web), PHP-FPM 8.4 with
+   its MariaDB module, the MariaDB server and client, and the project
+   packages. fab-plan-resolve keeps a package the parent installed at the
+   parent's version, so none of them is named here. */
+php-cli
+
+/* Nextcloud 35: the required modules and the recommended ones
+   (admin manual, "Preparing PHP"; first test of 0086) */
+php-gd
+php-xml
+php-mbstring
+php-zip
+php-curl
+php-intl
+php-bcmath
+php-gmp
+php-bz2
+php-imagick
+php-apcu            /* memcache.local */
+php-redis           /* memcache.distributed, memcache.locking, the sessions */
+
+/* Redis 8 of Debian, on its socket (decision 0086) */
+redis-server
+
+/* the build unpacks a .tar.bz2 and checks its signature */
+bzip2
+gpgv

@@ -1,0 +1,7 @@
+[Unit]
+Description=keel-nextcloud: open the site only on the node that takes writes
+After=mariadb.service redis-server.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/lib/keel-nextcloud/keel-nextcloud-gate
