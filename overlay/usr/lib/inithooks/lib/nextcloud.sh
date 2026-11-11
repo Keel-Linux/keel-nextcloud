@@ -194,7 +194,9 @@ EOF
 }
 
 # nextcloud_node_config_json DOMAIN ADDRESS...: the settings of this node
-# for occ config:import. No secret is in them.
+# for occ config:import. No secret is in them. The log level is 3 (errors):
+# at level 2 Nextcloud logs the PHP warning that holds session.save_path
+# with its password when Redis is down; at level 3 it does not (first test).
 nextcloud_node_config_json() {
     local domain=${1-} address
     [[ -n "$domain" ]] || return 1
@@ -215,7 +217,7 @@ nextcloud_node_config_json() {
  "datadirectory":"$NEXTCLOUD_DATA",
  "logfile":"$NEXTCLOUD_LOG",
  "log_type":"file",
- "loglevel":2,
+ "loglevel":3,
  "apps_paths":[{"path":"$NEXTCLOUD_ROOT/apps","url":"/apps","writable":false},{"path":"$NEXTCLOUD_ROOT/custom_apps","url":"/custom_apps","writable":true}],
  "maintenance_window_start":4,
  "htaccess.RewriteBase":"/"
