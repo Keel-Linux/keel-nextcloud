@@ -18,7 +18,15 @@ setup() {
     : > "$CALLS"
 
     IH="$SCRATCH/inithooks"
-    mkdir -p "$IH/lib"
+    mkdir -p "$IH/lib" "$IH/bin"
+    # the dialog: what a person types at the console (NC_TEST_TYPED)
+    cat > "$IH/bin/nextcloud.py" <<EOF
+#!/bin/bash
+echo "nextcloud.py \$*" >> "$CALLS"
+echo "APP_PASS=\${NC_TEST_TYPED-typed-at-the-console}"
+EOF
+    chmod +x "$IH/bin/nextcloud.py"
+    unset INITHOOKS_UNATTENDED
     ln -s "$(cd "$REPO/overlay/usr/lib/inithooks/lib" && pwd)/nextcloud.sh" "$IH/lib/nextcloud.sh"
     _console deferred
 
@@ -109,6 +117,7 @@ EOF
 # has console_deferred, "skipped" has only console_skipped.
 _console() {
     {
+        echo 'console_unattended() { [[ -n "${INITHOOKS_UNATTENDED:-}" && "$INITHOOKS_UNATTENDED" != no ]]; }'
         echo "console_skipped() { echo \"skipped \$1: \$2\" >> '$CALLS'; }"
         if [ "$1" = deferred ]; then
             echo "console_deferred() { echo \"deferred \$1: \$2\" >> '$CALLS'; }"
@@ -239,6 +248,38 @@ _conf() {
     grep -q "deferred 40nextcloud: no app_password redis_password" "$CALLS"
     [ ! -e "$NEXTCLOUD_PAIR_CONFIG" ]
     ! grep -q mysql "$CALLS"
+}
+
+@test "no administrator password and nobody at the console: deferred, nothing asked" {
+    _conf APP_PASS=
+    INITHOOKS_UNATTENDED=yes run "$HOOK"
+    [ "$status" -eq 0 ]
+    grep -q "deferred 40nextcloud: no app_password" "$CALLS"
+    ! grep -q "nextcloud.py" "$CALLS"
+    [ ! -e "$NEXTCLOUD_PAIR_CONFIG" ]
+}
+
+@test "no administrator password and a person at the console: the dialog asks it" {
+    _conf APP_PASS=
+    run "$HOOK"
+    [ "$status" -eq 0 ]
+    grep -q "nextcloud.py APP_PASS" "$CALLS"
+    [ "$(cat "$SCRATCH/oc_pass")" = "OC_PASS=typed-at-the-console" ]
+}
+
+@test "an empty answer at the console is fatal" {
+    _conf APP_PASS=
+    NC_TEST_TYPED= run "$HOOK"
+    [ "$status" -eq 1 ]
+    [[ "$output" == *"no password given"* ]]
+}
+
+@test "a missing shared secret is never asked, even at a console" {
+    _conf APP_PASS= KEEL_SECRET_NEXTCLOUD_SECRET=
+    run "$HOOK"
+    [ "$status" -eq 0 ]
+    grep -q "deferred 40nextcloud: no app_password nextcloud_secret" "$CALLS"
+    ! grep -q "nextcloud.py" "$CALLS"
 }
 
 @test "an inithooks without console_deferred records the hook as skipped" {
