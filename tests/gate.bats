@@ -91,7 +91,7 @@ EOF
     : > "$NEXTCLOUD_OPEN"
     run "$GATE"
     [ "$status" -eq 0 ]
-    ! grep -q FLUSHALL "$CALLS"
+    run ! grep -q FLUSHALL "$CALLS"
     [ -e "$NEXTCLOUD_OPEN" ]
 }
 
@@ -109,7 +109,7 @@ EOF
     run "$GATE"
     [ "$status" -eq 0 ]
     [ ! -e "$NEXTCLOUD_OPEN" ]
-    ! grep -q FLUSHALL "$CALLS"
+    run ! grep -q FLUSHALL "$CALLS"
 }
 
 @test "a node before the end of its first boot stays closed" {
@@ -117,7 +117,7 @@ EOF
     run "$GATE"
     [ "$status" -eq 0 ]
     [ ! -e "$NEXTCLOUD_OPEN" ]
-    ! grep -q "oc_migrations" "$CALLS"
+    run ! grep -q "oc_migrations" "$CALLS"
 }
 
 @test "a database that does not answer closes the site and follows nothing" {
@@ -126,7 +126,7 @@ EOF
     NC_TEST_READ_ONLY=fail run "$GATE"
     [ "$status" -eq 0 ]
     [ ! -e "$NEXTCLOUD_OPEN" ]
-    ! grep -q "oc_migrations" "$CALLS"
+    run ! grep -q "oc_migrations" "$CALLS"
 }
 
 @test "Redis that does not answer keeps the site closed" {
@@ -189,13 +189,13 @@ EOF
 @test "a replica waits while the database is not at the code" {
     NC_TEST_READ_ONLY=1 NC_TEST_CONFIG_VERSION=34.0.5.1 NC_TEST_ROWS=0 run "$GATE"
     [ "$status" -eq 0 ]
-    ! grep -q "config:system:set" "$CALLS"
+    run ! grep -q "config:system:set" "$CALLS"
 }
 
 @test "a replica at the version of the code does nothing" {
     NC_TEST_READ_ONLY=1 run "$GATE"
     [ "$status" -eq 0 ]
-    ! grep -q "config:system:set" "$CALLS"
+    run ! grep -q "config:system:set" "$CALLS"
 }
 
 @test "a replica that cannot set the version fails" {
@@ -207,16 +207,16 @@ EOF
 @test "a replica follows nothing with a bad database name, no migration, no code version or no count" {
     NC_TEST_READ_ONLY=1 NC_TEST_CONFIG_VERSION=34.0.5.1 NC_TEST_DB_NAME='x;y' run "$GATE"
     [ "$status" -eq 0 ]
-    ! grep -q "config:system:set" "$CALLS"
+    run ! grep -q "config:system:set" "$CALLS"
     NC_TEST_READ_ONLY=1 NC_TEST_CONFIG_VERSION=34.0.5.1 NC_TEST_ROWS=fail run "$GATE"
     [ "$status" -eq 0 ]
-    ! grep -q "config:system:set" "$CALLS"
+    run ! grep -q "config:system:set" "$CALLS"
     rm "$NC/core/Migrations/"*.php
     NC_TEST_READ_ONLY=1 NC_TEST_CONFIG_VERSION=34.0.5.1 run "$GATE"
     [ "$status" -eq 0 ]
-    ! grep -q "config:system:set" "$CALLS"
+    run ! grep -q "config:system:set" "$CALLS"
     rm "$NC/version.php"
     NC_TEST_READ_ONLY=1 NC_TEST_CONFIG_VERSION=34.0.5.1 run "$GATE"
     [ "$status" -eq 0 ]
-    ! grep -q "config:system:set" "$CALLS"
+    run ! grep -q "config:system:set" "$CALLS"
 }

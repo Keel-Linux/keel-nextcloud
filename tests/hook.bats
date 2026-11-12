@@ -158,7 +158,7 @@ _conf() {
 @test "no secret is an argument of any call" {
     run "$HOOK"
     [ "$status" -eq 0 ]
-    ! grep -q -e admin-secret-pass -e shared-secret -e shared-salt -e redis-main-pass -e redis-session-pass "$CALLS"
+    run ! grep -q -e admin-secret-pass -e shared-secret -e shared-salt -e redis-main-pass -e redis-session-pass "$CALLS"
 }
 
 @test "the pair file, the ACL and the pool are written with their modes" {
@@ -169,7 +169,7 @@ _conf() {
     [ "$(stat -c %a "$NEXTCLOUD_PAIR_CONFIG")" = 640 ]
     [ "$(stat -c %a "$NEXTCLOUD_REDIS_ACL")" = 640 ]
     [ "$(stat -c %a "$NEXTCLOUD_SESSION_POOL")" = 600 ]
-    ! grep -q redis-main-pass "$NEXTCLOUD_REDIS_ACL"
+    run ! grep -q redis-main-pass "$NEXTCLOUD_REDIS_ACL"
     grep -q "auth\[user\]=nextcloud-session&auth\[pass\]=redis-session-pass" "$NEXTCLOUD_SESSION_POOL"
     grep -q "chown root:redis" "$CALLS"
     grep -q "systemctl restart redis-server.service" "$CALLS"
@@ -187,7 +187,7 @@ _conf() {
     NC_TEST_INSTALLED=1 run "$HOOK"
     [ "$status" -eq 0 ]
     [[ "$output" == *"already installed"* ]]
-    ! grep -q "maintenance:install" "$CALLS"
+    run ! grep -q "maintenance:install" "$CALLS"
 }
 
 @test "a replica: a config.php at the version of the code, no database write" {
@@ -199,9 +199,9 @@ _conf() {
     grep -q "'version' => '35.0.2.2'" "$NEXTCLOUD_CONFIG"
     grep -q "'installed' => true" "$NEXTCLOUD_CONFIG"
     grep -q "'trusted_domains' => \['localhost', 'cloud.example.org', '\[2804:db8::5\]', '10.0.0.5'\]" "$NEXTCLOUD_CONFIG"
-    ! grep -q "config:import" "$CALLS"
-    ! grep -q "CREATE" "$CALLS"
-    ! grep -q "maintenance:install" "$CALLS"
+    run ! grep -q "config:import" "$CALLS"
+    run ! grep -q "CREATE" "$CALLS"
+    run ! grep -q "maintenance:install" "$CALLS"
     [ -e "$NEXTCLOUD_READY" ]
 }
 
@@ -209,7 +209,7 @@ _conf() {
     NC_TEST_READ_ONLY=1 run "$HOOK"
     [ "$status" -eq 0 ]
     [[ "$output" == *"read_only 1"* ]]
-    ! grep -q "CREATE" "$CALLS"
+    run ! grep -q "CREATE" "$CALLS"
 }
 
 @test "a replica keeps a config.php that is already there" {
@@ -247,7 +247,7 @@ _conf() {
     [ "$status" -eq 0 ]
     grep -q "deferred 40nextcloud: no app_password redis_password" "$CALLS"
     [ ! -e "$NEXTCLOUD_PAIR_CONFIG" ]
-    ! grep -q mysql "$CALLS"
+    run ! grep -q mysql "$CALLS"
 }
 
 @test "no administrator password and nobody at the console: deferred, nothing asked" {
@@ -255,7 +255,7 @@ _conf() {
     INITHOOKS_UNATTENDED=yes run "$HOOK"
     [ "$status" -eq 0 ]
     grep -q "deferred 40nextcloud: no app_password" "$CALLS"
-    ! grep -q "nextcloud.py" "$CALLS"
+    run ! grep -q "nextcloud.py" "$CALLS"
     [ ! -e "$NEXTCLOUD_PAIR_CONFIG" ]
 }
 
@@ -279,7 +279,7 @@ _conf() {
     run "$HOOK"
     [ "$status" -eq 0 ]
     grep -q "deferred 40nextcloud: no app_password nextcloud_secret" "$CALLS"
-    ! grep -q "nextcloud.py" "$CALLS"
+    run ! grep -q "nextcloud.py" "$CALLS"
 }
 
 @test "an inithooks without console_deferred records the hook as skipped" {
