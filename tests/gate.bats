@@ -56,6 +56,12 @@ while [ "\$1" != -- ]; do shift; done
 shift
 exec "\$@"
 EOF
+    # ip -o address show to ADDRESS: one line when NC_TEST_VIP_HERE is set
+    cat > "$STUBS/ip" <<EOF
+#!/bin/bash
+[ -n "\${NC_TEST_VIP_HERE:-}" ] && echo "5: wg0    inet6 \$5/128 scope global"
+exit 0
+EOF
     cat > "$STUBS/logger" <<EOF
 #!/bin/bash
 echo "logger \$*" >> "$CALLS"
@@ -142,6 +148,18 @@ EOF
     chmod 0700 "$SCRATCH/run"
     [ "$status" -eq 1 ]
     [[ "$output" == *"cannot write"* ]]
+}
+
+@test "a primary with a VIP opens only while the VIP is on this node" {
+    printf 'role=primary\nreplicates=database,files\nvip=fd00::ffff:1\n' > "$NEXTCLOUD_ROLE_FILE"
+    run "$GATE" --state
+    [ "$output" = closed ]
+    NC_TEST_VIP_HERE=1 run "$GATE" --state
+    [ "$output" = open ]
+    NC_TEST_VIP_HERE=1 run "$GATE"
+    [ -e "$NEXTCLOUD_OPEN" ]
+    run "$GATE"
+    [ ! -e "$NEXTCLOUD_OPEN" ]
 }
 
 @test "--state prints the answer and changes nothing" {

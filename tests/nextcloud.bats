@@ -236,6 +236,14 @@ assert c["apps_paths"][1]["writable"] is True
     [ "$(nextcloud_gate yes $'role=primary\nreplicates=database,files' 0)" = open ]
     [ "$(nextcloud_gate yes $'role=primary\nreplicates=database,files' 1)" = closed ]
     [ "$(nextcloud_gate yes 'replicates=database' 0)" = closed ]
+    [ "$(nextcloud_gate yes $'role=primary\nvip=fd00::ffff:1' 0 yes)" = open ]
+    [ "$(nextcloud_gate yes $'role=primary\nvip=fd00::ffff:1' 0 no)" = closed ]
+    [ "$(nextcloud_gate yes $'role=primary\nvip=fd00::ffff:1' 0)" = closed ]
+}
+
+@test "role_vip reads the VIP of the role file" {
+    [ "$(nextcloud_role_vip $'role=primary\nreplicates=database,files\nvip=fd23:2b45:279c::ffff:1')" = fd23:2b45:279c::ffff:1 ]
+    [ -z "$(nextcloud_role_vip 'role=primary')" ]
 }
 
 @test "gate_action flushes Redis when the node becomes the writer" {

@@ -299,7 +299,7 @@ env[PATH] = /usr/local/bin:/usr/bin:/bin
 EOF
 }
 
-# nextcloud_gate READY ROLE_FILE_TEXT READ_ONLY: "open" when this node may
+# nextcloud_gate READY ROLE_FILE_TEXT READ_ONLY [VIP_HERE]: "open" when this node may
 # serve, "closed" when it must not. Only a node that takes writes serves:
 # a node with a read-only database cannot serve sync clients, not even for
 # reads (first test), and its Redis is not the one of the writer.
@@ -310,8 +310,13 @@ EOF
 # and writes the role file. The role file alone is not enough either: a
 # primary that stopped hard still says role=primary when it boots, read
 # only and fenced (second test). A node with no role file is standalone.
+#
+# When the role file names a VIP (a line vip=ADDRESS), the VIP must be on
+# this node too (VIP_HERE is yes). In the second test a node kept
+# read_only off and role=primary for 4 minutes while no node carried the
+# VIP, and its gate was open.
 nextcloud_gate() {
-    local ready=${1-} role_text=${2-} read_only=${3-}
+    local ready=${1-} role_text=${2-} read_only=${3-} vip_here=${4-}
     if [[ "$ready" != yes ]]; then
         echo closed
         return 0
@@ -320,10 +325,19 @@ nextcloud_gate() {
         echo closed
         return 0
     fi
+    if grep -q '^vip=.' <<< "$role_text" && [[ "$vip_here" != yes ]]; then
+        echo closed
+        return 0
+    fi
     case "${read_only^^}" in
         0|OFF) echo open ;;
         *) echo closed ;;
     esac
+}
+
+# nextcloud_role_vip ROLE_FILE_TEXT: the VIP the role file names, or nothing
+nextcloud_role_vip() {
+    sed -n 's/^vip=//p' <<< "${1-}" | head -n 1
 }
 
 # nextcloud_gate_action BEFORE AFTER: what the gate does when its answer

@@ -7,7 +7,8 @@
 # even for reads, and file locks are correct only while every serving node
 # uses the same Redis (first test). Each node has its own Redis, so only
 # one node may serve: the one whose database takes writes, which is the
-# holder of the VIP on a pair (0049).
+# holder of the VIP on a pair (0049): read_only is 0, keel's role file says
+# role=primary, and the VIP of the role file is on a local interface.
 #
 # When the node becomes the writer, its Redis may hold a cache and locks of
 # an earlier time, so the gate empties it before it opens. The sessions are
@@ -47,7 +48,12 @@ ready=no
 role_text=$(cat "$NEXTCLOUD_ROLE_FILE" 2> /dev/null || true)
 read_only=$(mysql --batch --skip-column-names --execute='SELECT @@global.read_only' 2> /dev/null) \
     || read_only=unknown
-after=$(nextcloud_gate "$ready" "$role_text" "$read_only")
+vip=$(nextcloud_role_vip "$role_text")
+vip_here=no
+if [[ -n "$vip" ]] && [[ -n "$(ip -o address show to "$vip" 2> /dev/null)" ]]; then
+    vip_here=yes
+fi
+after=$(nextcloud_gate "$ready" "$role_text" "$read_only" "$vip_here")
 before=closed
 [[ -e "$NEXTCLOUD_OPEN" ]] && before=open
 
