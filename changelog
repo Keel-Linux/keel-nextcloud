@@ -16,6 +16,9 @@ keel-nextcloud-19.0 (1) keel; urgency=medium
     installs Nextcloud on a primary or a standalone node, writes the whole
     config.php of a replica, and asks the administrator password at a
     console through bin/nextcloud.py.
+  * Behind Anubis the route passes the scheme of the client to Nextcloud
+    with $keel_web_https of keel-web 0.4.4, so a request to port 443 gets
+    https:// links and port 80 keeps http:// links (decision 0079).
   * The front of keel-web: the paths of the sync clients go past Anubis,
     and a plugin of the rule set allows the DAV methods on the DAV paths
     and does not read the body of a DAV PUT.
