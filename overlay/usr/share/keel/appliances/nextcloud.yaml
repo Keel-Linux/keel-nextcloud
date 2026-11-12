@@ -15,22 +15,21 @@ checks:
   - {name: redis, process: redis, type: command,
      command: [/usr/bin/redis-cli, -s, /run/redis/redis-server.sock, INFO, server],
      on_failure: restart}
+# The secret and the password salt of Nextcloud are one value for the two
+# nodes of a pair. The first boot takes a declared one, else the row of
+# keel_settings in the Nextcloud database, else it makes one, and the node
+# that takes writes stores it there: the seed and the replication of
+# MariaDB carry it to the replica (as the APP_KEY of keel-laravel). The
+# two Redis passwords are of each node, made at its first boot, and are not
+# secrets of the manifest: each node uses only its own Redis.
 secrets:
   - name: nextcloud_secret
     description: The secret of Nextcloud (config secret), the same on both nodes of a pair
-    generate: required
+    generate: allowed
     shared: true
   - name: nextcloud_passwordsalt
     description: The password salt of Nextcloud, the same on both nodes of a pair
-    generate: required
-    shared: true
-  - name: redis_password
-    description: The Redis account "nextcloud" (cache and file locks)
-    generate: required
-    shared: true
-  - name: redis_session_password
-    description: The Redis account "nextcloud-session" (the PHP sessions only)
-    generate: required
+    generate: allowed
     shared: true
 # state: the directories Nextcloud writes at run time (first test of
 # 0087): the data directory (the files, appdata_<instanceid> with the

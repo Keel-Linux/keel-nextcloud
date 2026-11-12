@@ -10,6 +10,13 @@
 # holder of the VIP on a pair (0049): read_only is 0, keel's role file says
 # role=primary, and the VIP of the role file is on a local interface.
 #
+# When the node becomes the writer, keel-pair.config.php must hold the
+# secret and the salt of the database (the rows of keel_settings, which the
+# seed and the replication of MariaDB carry from the primary): a node of a
+# cloud pair made its own site at its first boot, before it joined. So the
+# gate writes those rows into the file, and reloads PHP-FPM for its
+# opcache, before it opens, and at each pass while the node is closed.
+#
 # When the node becomes the writer, its Redis may hold a cache and locks of
 # an earlier time, so the gate empties it before it opens. The sessions are
 # not lost by that: Nextcloud logs a browser in again from oc_authtoken
@@ -60,6 +67,45 @@ redis_pass() {
         "$NEXTCLOUD_PAIR_CONFIG"
 }
 
+NEXTCLOUD_FPM_SERVICE="${NEXTCLOUD_FPM_SERVICE:-php8.4-fpm}"
+
+# config_value KEY: the value of KEY in config.php, read as the web user.
+# The PHP code is in single quotes on purpose (SC2016).
+# shellcheck disable=SC2016
+config_value() {
+    runuser -u "$NEXTCLOUD_WEB_USER" -- php -r \
+        '$CONFIG = []; include $argv[1]; echo $CONFIG[$argv[2]] ?? "";' "$NEXTCLOUD_CONFIG" "$1"
+}
+
+# stored DB NAME: the row NAME of DB.keel_settings, or nothing
+stored() {
+    local query
+    query=$(nextcloud_stored_sql "$1" "$2") || return 0
+    mysql --batch --skip-column-names --execute="$query" 2> /dev/null || true
+}
+
+# pair_follow: keel-pair.config.php gets the secret and the salt of the
+# database when it holds other values. No row (or a value that is not
+# usable) leaves the file as it is.
+# shellcheck disable=SC2016
+pair_follow() {
+    local db secret salt held why
+    db=$(config_value dbname)
+    [[ $db =~ $NEXTCLOUD_IDENT_RE ]] || return 0
+    secret=$(stored "$db" nextcloud_secret)
+    salt=$(stored "$db" nextcloud_passwordsalt)
+    nextcloud_value_ok "$secret" && nextcloud_value_ok "$salt" || return 0
+    held=$(php -r '$CONFIG = []; include $argv[1]; echo ($CONFIG["secret"] ?? ""), "\n", ($CONFIG["passwordsalt"] ?? ""), "\n";' \
+        "$NEXTCLOUD_PAIR_CONFIG" 2> /dev/null)
+    [[ "$held" != "$secret"$'\n'"$salt" ]] || return 0
+    why=$(nextcloud_pair_config_php "$secret" "$salt" "$(redis_pass)" \
+        | nextcloud_write_file "$NEXTCLOUD_PAIR_CONFIG" "root:$NEXTCLOUD_WEB_USER" 0640) \
+        || fatal "$why: the site stays closed"
+    systemctl reload "$NEXTCLOUD_FPM_SERVICE.service" \
+        || fatal "$NEXTCLOUD_FPM_SERVICE did not reload: the site stays closed"
+    logger -t keel-nextcloud "keel-pair.config.php now holds the secret and the salt of the database"
+}
+
 ready=no
 [[ -e "$NEXTCLOUD_READY" ]] && ready=yes
 role_text=$(cat "$NEXTCLOUD_ROLE_FILE" 2> /dev/null || true)
@@ -81,6 +127,7 @@ fi
 
 case $(nextcloud_gate_action "$before" "$after") in
     flush-open)
+        pair_follow
         answer=$(redis_cli FLUSHALL 2>&1) || fatal "Redis did not answer: the site stays closed"
         [[ "$answer" == OK ]] || fatal "Redis refused FLUSHALL ($answer): the site stays closed"
         mkdir -p "$(dirname "$NEXTCLOUD_OPEN")"
@@ -97,12 +144,13 @@ esac
 # code is in single quotes on purpose (SC2016).
 # shellcheck disable=SC2016
 if [[ "$after" == closed && "$ready" == yes && "$read_only" != unknown ]]; then
+    # a replica holds the values of the primary as soon as its database
+    # has them, so both nodes of a pair show the same pair file
+    pair_follow
     code=$(nextcloud_code_version "$NEXTCLOUD_ROOT/version.php") || exit 0
-    config=$(runuser -u "$NEXTCLOUD_WEB_USER" -- php -r \
-        '$CONFIG = []; include $argv[1]; echo $CONFIG["version"] ?? "";' "$NEXTCLOUD_CONFIG")
+    config=$(config_value version)
     migration=$(nextcloud_newest_core_migration "$NEXTCLOUD_ROOT/core/Migrations") || exit 0
-    db_name=$(runuser -u "$NEXTCLOUD_WEB_USER" -- php -r \
-        '$CONFIG = []; include $argv[1]; echo $CONFIG["dbname"] ?? "";' "$NEXTCLOUD_CONFIG")
+    db_name=$(config_value dbname)
     [[ $db_name =~ $NEXTCLOUD_IDENT_RE ]] || exit 0
     rows=$(mysql --batch --skip-column-names --execute="SELECT COUNT(*) FROM \`$db_name\`.oc_migrations WHERE app='core' AND version='$migration'" 2> /dev/null) || exit 0
     if [[ $(nextcloud_follow_action "$code" "$config" "$rows") == set ]]; then

@@ -92,20 +92,77 @@ setup() {
     [ "$status" -eq 1 ]
 }
 
-@test "missing_values names each value that is not there" {
-    run nextcloud_missing_values primary "" "" "" "" ""
-    [ "${lines[0]}" = app_password ]
-    [ "${lines[1]}" = nextcloud_secret ]
-    [ "${lines[2]}" = nextcloud_passwordsalt ]
-    [ "${lines[3]}" = redis_password ]
-    [ "${lines[4]}" = redis_session_password ]
+@test "needs_password: a primary or a standalone node needs the administrator password" {
+    run nextcloud_needs_password primary ""
+    [ "$status" -eq 0 ]
+    run nextcloud_needs_password "" ""
+    [ "$status" -eq 0 ]
+    run nextcloud_needs_password primary pass
+    [ "$status" -eq 1 ]
 }
 
-@test "missing_values: a replica needs no administrator password" {
-    run nextcloud_missing_values replica "" s p r q
-    [ -z "$output" ]
-    run nextcloud_missing_values primary pass s p r q
-    [ -z "$output" ]
+@test "needs_password: a replica needs no administrator password" {
+    run nextcloud_needs_password replica ""
+    [ "$status" -eq 1 ]
+}
+
+@test "value_ok takes the characters of a generated token and refuses quotes and spaces" {
+    nextcloud_value_ok "Ab0._~+/=-"
+    run nextcloud_value_ok ""
+    [ "$status" -eq 1 ]
+    run nextcloud_value_ok "it's"
+    [ "$status" -eq 1 ]
+    run nextcloud_value_ok "a b"
+    [ "$status" -eq 1 ]
+    run nextcloud_value_ok 'a\b'
+    [ "$status" -eq 1 ]
+}
+
+@test "store_sql makes the table and keeps both rows" {
+    run nextcloud_store_sql nextcloud the-secret the-salt
+    [ "$status" -eq 0 ]
+    [[ "${lines[0]}" == 'CREATE TABLE IF NOT EXISTS `nextcloud`.`keel_settings` ('* ]]
+    [[ "$output" == *"('nextcloud_secret', 'the-secret'), ('nextcloud_passwordsalt', 'the-salt') ON DUPLICATE KEY UPDATE value = VALUES(value);"* ]]
+}
+
+@test "store_sql refuses a bad database name or a value it cannot quote" {
+    run nextcloud_store_sql 'x;y' s p
+    [ "$status" -eq 1 ]
+    run nextcloud_store_sql nextcloud "it's" p
+    [ "$status" -eq 1 ]
+    run nextcloud_store_sql nextcloud s ""
+    [ "$status" -eq 1 ]
+}
+
+@test "stored_sql reads one row, and refuses a bad name" {
+    run nextcloud_stored_sql nextcloud nextcloud_secret
+    [ "$output" = "SELECT value FROM \`nextcloud\`.\`keel_settings\` WHERE name = 'nextcloud_secret'" ]
+    run nextcloud_stored_sql 'x;y' nextcloud_secret
+    [ "$status" -eq 1 ]
+    run nextcloud_stored_sql nextcloud "a'b"
+    [ "$status" -eq 1 ]
+}
+
+@test "write_file puts the input in place with its owner and mode" {
+    chown() { echo "chown $*" >> "$SCRATCH/calls"; }
+    echo content | nextcloud_write_file "$SCRATCH/file" me:me 0640
+    [ "$(cat "$SCRATCH/file")" = content ]
+    [ "$(stat -c %a "$SCRATCH/file")" = 640 ]
+    grep -q "chown me:me $SCRATCH/file." "$SCRATCH/calls"
+}
+
+@test "write_file fails and leaves no temporary file when the owner cannot be set" {
+    chown() { return 1; }
+    run nextcloud_write_file "$SCRATCH/file" me:me 0640 <<< content
+    [ "$status" -eq 1 ]
+    [[ "$output" == *"cannot give $SCRATCH/file to me:me"* ]]
+    [ -z "$(ls "$SCRATCH")" ]
+}
+
+@test "write_file fails beside a directory that does not exist" {
+    run nextcloud_write_file "$SCRATCH/none/file" me:me 0640 <<< content
+    [ "$status" -eq 1 ]
+    [[ "$output" == *"cannot write beside"* ]]
 }
 
 @test "instance_id is the same for the same secret and differs for another" {

@@ -28,10 +28,10 @@ What is in it
 ``overlay/etc/nginx/keel-default.d/60-keel-nextcloud.conf``     the route in the default site of keel-web
 ``overlay/etc/nginx/keel-front.d/60-keel-nextcloud.conf``       the sync clients past Anubis, the body limit
 ``overlay/etc/coreruleset/plugins/keel-nextcloud-before.conf``  WebDAV behind Coraza
-``overlay/usr/share/keel/appliances/nextcloud.yaml``            the manifest: replicated paths, shared secrets
+``overlay/usr/share/keel/appliances/nextcloud.yaml``            the manifest: replicated paths, the secret and salt of the pair
 ``overlay/usr/local/bin/keel-occ``                              occ as the web user
 ``bin/keel-nextcloud-image-check``                              the image as a first boot starts from
-``tests/``                                                      bats, ``coverage.sh`` (kcov), ``commission.yaml`` (draft)
+``tests/``                                                      bats, ``coverage.sh`` (kcov), ``commission.yaml`` and ``commission-core.yaml`` (0075)
 ==============================================================  ==============================================
 
 Tests
@@ -40,11 +40,14 @@ Tests
 ::
 
     make lint        # shellcheck, clean
-    make test        # 99 bats tests
+    make test        # 121 bats tests
     make coverage    # kcov; 95 to 100 percent per file, threshold 90
 
-``tests/commission.yaml`` is a draft: ``keel-commission --check`` accepts
-it, and no pass has run. The manifest validates with keel 0.23.96 along
+``tests/commission.yaml`` is the contract of 0075. The image 19.0-1 failed
+all its passes on 2026-11-12; 19.0-2 has the fixes. The replica of a cloud
+pair answers 503 by design, and the runner runs the urls and the proofs
+on every node, so those checks fail on the replica until the runner takes
+them per node. The manifest validates with keel 0.23.96 along
 core, web, lnmp and nextcloud.
 
 What the build host must do
@@ -63,7 +66,8 @@ Known gaps
   separate pull request carries that line.
 - Redis is installed from Debian with an include file, not through the
   ``unit-redis`` component of keel-redis.
-- The files of the overlay get their modes from the checkout; check
-  them in the image.
+- The files of the overlay get their modes from the checkout.
+  ``tests/tree.bats`` checks that the conf scripts, the hooks and the
+  programs are executable.
 - The memory of nginx under Coraza with large DAV bodies: a release
   blocker candidate of note 0087, section 7; not a defect of this layer.
