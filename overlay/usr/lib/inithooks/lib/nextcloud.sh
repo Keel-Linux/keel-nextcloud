@@ -6,6 +6,9 @@
 # fatal and a test can exercise every branch without a database, a web
 # server, Redis, a network or root.
 #
+# nextcloud_write_file is the one function that writes: the hook and the
+# gate both put the pair file in place with it.
+#
 # No function here puts a secret on the command line of another process.
 # The functions that handle one are shell functions, and a digest is made
 # by printf (a builtin) into sha256sum on a pipe.
@@ -15,11 +18,13 @@
 NEXTCLOUD_ROOT="${NEXTCLOUD_ROOT:-/var/www/nextcloud}"
 NEXTCLOUD_CONFIG_DIR="${NEXTCLOUD_CONFIG_DIR:-$NEXTCLOUD_ROOT/config}"
 NEXTCLOUD_CONFIG="${NEXTCLOUD_CONFIG:-$NEXTCLOUD_CONFIG_DIR/config.php}"
-# The values that both nodes of a pair must hold: instanceid, secret,
-# passwordsalt and the Redis account. Nextcloud reads every
+# The values that both nodes of a pair must hold: instanceid, secret and
+# passwordsalt, with the Redis account of the node. Nextcloud reads every
 # config/*.config.php after config.php, and the value of such a file wins
-# (first test, 0087). Both nodes render the same file from the shared
-# secrets, so neither copies anything from the other.
+# (first test, 0087). The secret and the salt are rows of the table
+# keel_settings in the Nextcloud database, so the seed and the replication
+# of MariaDB give the replica the values of the primary; the gate writes
+# them into this file before a node serves.
 NEXTCLOUD_PAIR_CONFIG="${NEXTCLOUD_PAIR_CONFIG:-$NEXTCLOUD_CONFIG_DIR/keel-pair.config.php}"
 NEXTCLOUD_DATA="${NEXTCLOUD_DATA:-/var/lib/nextcloud/data}"
 # The log is outside the data directory: the data directory is a
@@ -53,6 +58,11 @@ NEXTCLOUD_OPEN="${NEXTCLOUD_OPEN:-/run/keel-nextcloud/open}"
 NEXTCLOUD_WAIT_TRIES="${NEXTCLOUD_WAIT_TRIES:-30}"
 NEXTCLOUD_LOGIN_RE='^[A-Za-z0-9._@-]+$'
 NEXTCLOUD_IDENT_RE='^[A-Za-z_][A-Za-z0-9_]*$'
+# The characters of a value that goes into an SQL string, a PHP string and
+# a Redis URL as it is: those of keel's generated tokens (base64url) and of
+# base64. "openssl rand -hex" gives a subset.
+NEXTCLOUD_VALUE_RE='^[A-Za-z0-9._~+/=-]+$'
+NEXTCLOUD_SETTINGS_TABLE="${NEXTCLOUD_SETTINGS_TABLE:-keel_settings}"
 NEXTCLOUD_DOMAIN_RE='^[A-Za-z0-9]([A-Za-z0-9-]*[A-Za-z0-9])?(\.[A-Za-z0-9]([A-Za-z0-9-]*[A-Za-z0-9])?)*$'
 
 # nextcloud_first_value VALUE...: the first argument that is set and is not
@@ -133,21 +143,54 @@ nextcloud_is_replica() {
     return 1
 }
 
-# nextcloud_missing_values ROLE APP_PASS SECRET SALT REDIS_PASS SESSION_PASS:
-# the names of the values that are not there, one per line. A replica needs
-# no administrator password: the account comes with the copy of the
-# primary. Every node needs the four shared secrets.
-nextcloud_missing_values() {
-    local role=${1-}
-    [[ "$role" == replica || -n "${2-}" ]] || echo app_password
-    [[ -n "${3-}" ]] || echo nextcloud_secret
-    [[ -n "${4-}" ]] || echo nextcloud_passwordsalt
-    [[ -n "${5-}" ]] || echo redis_password
-    [[ -n "${6-}" ]] || echo redis_session_password
+# nextcloud_needs_password ROLE APP_PASS: true when this node must get
+# the administrator password and has none. A replica needs none: the
+# account comes with the copy of the primary.
+nextcloud_needs_password() {
+    [[ "${1-}" != replica && -z "${2-}" ]]
+}
+
+# nextcloud_value_ok VALUE: true when VALUE is not empty and has only the
+# characters of NEXTCLOUD_VALUE_RE
+nextcloud_value_ok() {
+    [[ -n "${1-}" && $1 =~ $NEXTCLOUD_VALUE_RE ]]
+}
+
+# nextcloud_store_sql DB SECRET SALT: the statements that keep SECRET and
+# SALT as the rows nextcloud_secret and nextcloud_passwordsalt of
+# DB.keel_settings. The caller gives them to mysql on stdin, so no value is
+# an argument of a process.
+nextcloud_store_sql() {
+    local db=${1-} secret=${2-} salt=${3-} table=$NEXTCLOUD_SETTINGS_TABLE
+    [[ $db =~ $NEXTCLOUD_IDENT_RE ]] || return 1
+    nextcloud_value_ok "$secret" && nextcloud_value_ok "$salt" || return 1
+    printf "CREATE TABLE IF NOT EXISTS \`%s\`.\`%s\` (name VARCHAR(64) NOT NULL PRIMARY KEY, value TEXT NOT NULL) CHARACTER SET ascii;\n" "$db" "$table"
+    printf "INSERT INTO \`%s\`.\`%s\` (name, value) VALUES ('nextcloud_secret', '%s'), ('nextcloud_passwordsalt', '%s') ON DUPLICATE KEY UPDATE value = VALUES(value);\n" \
+        "$db" "$table" "$secret" "$salt"
+}
+
+# nextcloud_stored_sql DB NAME: the query of the row NAME of DB.keel_settings
+nextcloud_stored_sql() {
+    local db=${1-} name=${2-}
+    [[ $db =~ $NEXTCLOUD_IDENT_RE && $name =~ $NEXTCLOUD_IDENT_RE ]] || return 1
+    printf "SELECT value FROM \`%s\`.\`%s\` WHERE name = '%s'\n" "$db" "$NEXTCLOUD_SETTINGS_TABLE" "$name"
+}
+
+# nextcloud_write_file PATH OWNER MODE: standard input into PATH, by a
+# temporary file beside it, so a reader never sees half a file. Fails with
+# the reason on stdout, and leaves no temporary file.
+nextcloud_write_file() {
+    local path=$1 owner=$2 mode=$3 tmp
+    tmp=$(mktemp "$path.XXXXXX" 2> /dev/null) || { echo "cannot write beside $path"; return 1; }
+    chmod 0600 "$tmp"
+    cat > "$tmp" || { rm -f "$tmp"; echo "cannot write $path"; return 1; }
+    chown "$owner" "$tmp" || { rm -f "$tmp"; echo "cannot give $path to $owner"; return 1; }
+    chmod "$mode" "$tmp"
+    mv "$tmp" "$path" || { rm -f "$tmp"; echo "cannot put $path in place"; return 1; }
 }
 
 # nextcloud_instance_id SECRET: the instanceid of the pair, made from the
-# shared secret, so both nodes get the same one with no copy. The name of
+# secret of the pair, so both nodes get the same one with no copy. The name of
 # the directory appdata_<instanceid> in the data directory follows it.
 nextcloud_instance_id() {
     local secret=${1-} digest
@@ -165,7 +208,8 @@ nextcloud_php_quote() {
 }
 
 # nextcloud_pair_config_php SECRET SALT REDIS_PASS: the file
-# keel-pair.config.php. It is the same on both nodes of a pair.
+# keel-pair.config.php. Its secret, salt and instanceid are the same on both
+# nodes of a pair; the Redis password is the one of the node.
 nextcloud_pair_config_php() {
     local secret=${1-} salt=${2-} redis_pass=${3-} instance
     [[ -n "$secret" && -n "$salt" && -n "$redis_pass" ]] || return 1
@@ -173,8 +217,8 @@ nextcloud_pair_config_php() {
     cat <<EOF
 <?php
 // keel-nextcloud: the values both nodes of a pair hold (decision 0087).
-// Written by the first boot from the shared secrets. A value here wins
-// over config.php.
+// Written by the first boot and by the gate from the rows of keel_settings.
+// A value here wins over config.php.
 \$CONFIG = [
   'instanceid' => $(nextcloud_php_quote "$instance"),
   'secret' => $(nextcloud_php_quote "$secret"),

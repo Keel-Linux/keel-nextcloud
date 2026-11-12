@@ -1,3 +1,30 @@
+keel-nextcloud-19.0 (2) keel; urgency=medium
+
+  * conf.d/main is executable. fab runs only an executable conf script, so
+    the image 19.0-1 had no Nextcloud code, kept the build tools in
+    /usr/local/lib/keel-build and the check page of lnmp (40lnmp-check,
+    keel_check), and answered 503 (commissioning, 2026-11-12). A test now
+    checks the modes of the tree.
+  * The instance description needs no secret of the manifest: 00declarative
+    of inithooks refuses a secret name that is not root, db or app, and
+    the preseeded first boot of 19.0-1 stopped there. The first boot takes
+    the secret and the password salt of Nextcloud from keel when keel gives
+    them, else from the table keel_settings of the Nextcloud database, else
+    it makes them, and stores them there. The seed and the replication of
+    MariaDB carry them to the replica. The two Redis passwords are made on
+    each node. The manifest declares secret and salt as generate: allowed
+    and no Redis password.
+  * keel-init asks the Nextcloud password: the hook no longer defers when
+    only the shared secrets were missing, which no first boot gave.
+  * The gate writes the secret and the salt of the database into
+    keel-pair.config.php, and reloads PHP-FPM, before the node opens and
+    while it is closed, so a cloud replica that made its own site at its
+    first boot gets the values of the primary.
+  * tests/commission.yaml: the cloud nodes of cloud simple and cloud
+    advanced, with the Keel Core witness (tests/commission-core.yaml).
+
+ -- KeelLinux maintainers <admin@keellinux.org>  Thu, 12 Nov 2026 18:00:00 +0000
+
 keel-nextcloud-19.0 (1) keel; urgency=medium
 
   * The first layer of Nextcloud on lnmp (handbook decision 0087):

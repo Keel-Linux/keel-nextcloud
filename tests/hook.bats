@@ -43,15 +43,20 @@ EOF
     _stub systemctl 0
     _stub chown 0
     _stub mysqladmin 0
+    # openssl rand: a new value at each call (throwaway1, throwaway2, ...)
     cat > "$STUBS/openssl" <<EOF
 #!/bin/bash
 echo "openssl \$*" >> "$CALLS"
-echo throwaway
+echo x >> "$SCRATCH/rand"
+echo "throwaway\$(wc -l < "$SCRATCH/rand")"
 EOF
     cat > "$STUBS/hostname" <<EOF
 #!/bin/bash
 echo "2804:db8::5 10.0.0.5"
 EOF
+    # mysql: the rows of keel_settings from NC_TEST_STORED_SECRET and
+    # NC_TEST_STORED_SALT; a call with no --execute reads its statements on
+    # stdin, into stored.sql
     cat > "$STUBS/mysql" <<EOF
 #!/bin/bash
 echo "mysql \$*" >> "$CALLS"
@@ -59,6 +64,10 @@ case "\$*" in
     *read_only*) [ -n "\${NC_TEST_READ_FAILS:-}" ] && exit 1; echo \${NC_TEST_READ_ONLY:-0} ;;
     *"CREATE DATABASE"*) [ -n "\${NC_TEST_CREATE_FAILS:-}" ] && exit 1 ;;
     *"CREATE USER"*) [ -n "\${NC_TEST_ACCOUNT_FAILS:-}" ] && exit 1 ;;
+    *keel_settings*nextcloud_secret*) echo "\${NC_TEST_STORED_SECRET:-}" ;;
+    *keel_settings*nextcloud_passwordsalt*) echo "\${NC_TEST_STORED_SALT:-}" ;;
+    *--execute*) ;;
+    *) cat >> "$SCRATCH/stored.sql"; [ -n "\${NC_TEST_STORE_FAILS:-}" ] && exit 1 ;;
 esac
 exit 0
 EOF
@@ -125,16 +134,13 @@ _console() {
     } > "$IH/lib/console.sh"
 }
 
-# _conf [NAME=VALUE...]: the inithooks.conf of the run, with every secret
-# unless a test overrides or empties one
+# _conf [NAME=VALUE...]: the inithooks.conf of the run, as 00declarative
+# writes it: the administrator password and the domain, and no secret of
+# the manifest (inithooks refuses those names in the description)
 _conf() {
     {
         echo "APP_PASS=admin-secret-pass"
         echo "APP_DOMAIN=https://cloud.example.org"
-        echo "KEEL_SECRET_NEXTCLOUD_SECRET=shared-secret"
-        echo "KEEL_SECRET_NEXTCLOUD_PASSWORDSALT=shared-salt"
-        echo "KEEL_SECRET_REDIS_PASSWORD=redis-main-pass"
-        echo "KEEL_SECRET_REDIS_SESSION_PASSWORD=redis-session-pass"
         local kv
         for kv in "$@"; do echo "$kv"; done
     } > "$CONF"
@@ -156,12 +162,24 @@ _conf() {
 }
 
 @test "no secret is an argument of any call" {
+    _conf KEEL_SECRET_NEXTCLOUD_SECRET=shared-secret KEEL_SECRET_NEXTCLOUD_PASSWORDSALT=shared-salt \
+        KEEL_SECRET_REDIS_PASSWORD=redis-main-pass KEEL_SECRET_REDIS_SESSION_PASSWORD=redis-session-pass
     run "$HOOK"
     [ "$status" -eq 0 ]
     run ! grep -q -e admin-secret-pass -e shared-secret -e shared-salt -e redis-main-pass -e redis-session-pass "$CALLS"
+    # the made values (throwaway1 to 4; 5 is the throwaway of the install)
+    _conf
+    : > "$CALLS"
+    rm -f "$SCRATCH/rand"
+    run "$HOOK"
+    [ "$status" -eq 0 ]
+    grep -q -- "--admin-pass=throwaway5" "$CALLS"
+    run ! grep -q -e throwaway1 -e throwaway2 -e throwaway3 -e throwaway4 "$CALLS"
 }
 
 @test "the pair file, the ACL and the pool are written with their modes" {
+    _conf KEEL_SECRET_NEXTCLOUD_SECRET=shared-secret KEEL_SECRET_NEXTCLOUD_PASSWORDSALT=shared-salt \
+        KEEL_SECRET_REDIS_PASSWORD=redis-main-pass KEEL_SECRET_REDIS_SESSION_PASSWORD=redis-session-pass
     run "$HOOK"
     [ "$status" -eq 0 ]
     grep -q "'secret' => 'shared-secret'" "$NEXTCLOUD_PAIR_CONFIG"
@@ -174,6 +192,55 @@ _conf() {
     grep -q "chown root:redis" "$CALLS"
     grep -q "systemctl restart redis-server.service" "$CALLS"
     grep -q "systemctl restart php8.4-fpm.service" "$CALLS"
+}
+
+@test "with no secret declared the node makes all four and stores secret and salt" {
+    run "$HOOK"
+    [ "$status" -eq 0 ]
+    [ "$(grep -c "openssl rand -hex 32" "$CALLS")" -eq 4 ]
+    grep -q "'secret' => 'throwaway1'" "$NEXTCLOUD_PAIR_CONFIG"
+    grep -q "'passwordsalt' => 'throwaway2'" "$NEXTCLOUD_PAIR_CONFIG"
+    grep -q "'password' => 'throwaway3'" "$NEXTCLOUD_PAIR_CONFIG"
+    grep -q "auth\[pass\]=throwaway4" "$NEXTCLOUD_SESSION_POOL"
+    grep -q 'CREATE TABLE IF NOT EXISTS `nextcloud`.`keel_settings`' "$SCRATCH/stored.sql"
+    grep -q "('nextcloud_secret', 'throwaway1')" "$SCRATCH/stored.sql"
+    grep -q "('nextcloud_passwordsalt', 'throwaway2')" "$SCRATCH/stored.sql"
+    run ! grep -q -e throwaway3 -e throwaway4 "$SCRATCH/stored.sql"
+}
+
+@test "the stored rows win over new values, so a second run keeps them" {
+    NC_TEST_STORED_SECRET=stored-secret NC_TEST_STORED_SALT=stored-salt run "$HOOK"
+    [ "$status" -eq 0 ]
+    grep -q "'secret' => 'stored-secret'" "$NEXTCLOUD_PAIR_CONFIG"
+    grep -q "'passwordsalt' => 'stored-salt'" "$NEXTCLOUD_PAIR_CONFIG"
+    [ "$(grep -c "openssl rand -hex 32" "$CALLS")" -eq 2 ]
+}
+
+@test "a declared value wins over the stored row" {
+    _conf KEEL_SECRET_NEXTCLOUD_SECRET=declared-secret
+    NC_TEST_STORED_SECRET=stored-secret NC_TEST_STORED_SALT=stored-salt run "$HOOK"
+    [ "$status" -eq 0 ]
+    grep -q "'secret' => 'declared-secret'" "$NEXTCLOUD_PAIR_CONFIG"
+    grep -q "('nextcloud_secret', 'declared-secret')" "$SCRATCH/stored.sql"
+}
+
+@test "a value that cannot go into a statement as it is, is fatal" {
+    _conf "KEEL_SECRET_NEXTCLOUD_SECRET=\"it's\""
+    run "$HOOK"
+    [ "$status" -eq 1 ]
+    [[ "$output" == *"nextcloud_secret has a character"* ]]
+    [ ! -e "$NEXTCLOUD_PAIR_CONFIG" ]
+    _conf "KEEL_SECRET_REDIS_PASSWORD=\"a b\""
+    run "$HOOK"
+    [ "$status" -eq 1 ]
+    [[ "$output" == *"redis_password has a character"* ]]
+}
+
+@test "rows that cannot be stored are fatal, before the install" {
+    NC_TEST_STORE_FAILS=1 run "$HOOK"
+    [ "$status" -eq 1 ]
+    [[ "$output" == *"cannot store nextcloud_secret and nextcloud_passwordsalt"* ]]
+    run ! grep -q "maintenance:install" "$CALLS"
 }
 
 @test "the node settings carry the domain and the addresses of the node" {
@@ -203,6 +270,22 @@ _conf() {
     run ! grep -q "CREATE" "$CALLS"
     run ! grep -q "maintenance:install" "$CALLS"
     [ -e "$NEXTCLOUD_READY" ]
+}
+
+@test "a replica takes secret and salt from the stored rows and stores nothing" {
+    NC_TEST_STORED_SECRET=primary-secret NC_TEST_STORED_SALT=primary-salt NC_TEST_READ_ONLY=1 run "$HOOK"
+    [ "$status" -eq 0 ]
+    grep -q "'secret' => 'primary-secret'" "$NEXTCLOUD_PAIR_CONFIG"
+    grep -q "'passwordsalt' => 'primary-salt'" "$NEXTCLOUD_PAIR_CONFIG"
+    [ ! -e "$SCRATCH/stored.sql" ]
+}
+
+@test "a replica with no stored row makes values of its own and says the gate takes the primary's" {
+    NC_TEST_READ_ONLY=1 run "$HOOK"
+    [ "$status" -eq 0 ]
+    grep -q "'secret' => 'throwaway1'" "$NEXTCLOUD_PAIR_CONFIG"
+    [[ "$output" == *"the gate writes the values of the primary"* ]]
+    [ ! -e "$SCRATCH/stored.sql" ]
 }
 
 @test "a read-only server is a replica even with no role" {
@@ -241,15 +324,6 @@ _conf() {
     [[ "$output" == *"cannot read the version of the code"* ]]
 }
 
-@test "missing secrets defer the hook and write nothing" {
-    _conf KEEL_SECRET_REDIS_PASSWORD= APP_PASS=
-    run "$HOOK"
-    [ "$status" -eq 0 ]
-    grep -q "deferred 40nextcloud: no app_password redis_password" "$CALLS"
-    [ ! -e "$NEXTCLOUD_PAIR_CONFIG" ]
-    run ! grep -q mysql "$CALLS"
-}
-
 @test "no administrator password and nobody at the console: deferred, nothing asked" {
     _conf APP_PASS=
     INITHOOKS_UNATTENDED=yes run "$HOOK"
@@ -257,6 +331,7 @@ _conf() {
     grep -q "deferred 40nextcloud: no app_password" "$CALLS"
     run ! grep -q "nextcloud.py" "$CALLS"
     [ ! -e "$NEXTCLOUD_PAIR_CONFIG" ]
+    run ! grep -q mysql "$CALLS"
 }
 
 @test "no administrator password and a person at the console: the dialog asks it" {
@@ -274,20 +349,21 @@ _conf() {
     [[ "$output" == *"no password given"* ]]
 }
 
-@test "a missing shared secret is never asked, even at a console" {
-    _conf APP_PASS= KEEL_SECRET_NEXTCLOUD_SECRET=
+@test "a replica needs no administrator password and asks nothing" {
+    printf 'database:\n  server:\n    role: replica\n' > "$NEXTCLOUD_SPEC"
+    _conf APP_PASS=
     run "$HOOK"
     [ "$status" -eq 0 ]
-    grep -q "deferred 40nextcloud: no app_password nextcloud_secret" "$CALLS"
     run ! grep -q "nextcloud.py" "$CALLS"
+    run ! grep -q "deferred" "$CALLS"
 }
 
 @test "an inithooks without console_deferred records the hook as skipped" {
     _console skipped
-    _conf KEEL_SECRET_NEXTCLOUD_SECRET=
-    run "$HOOK"
+    _conf APP_PASS=
+    INITHOOKS_UNATTENDED=yes run "$HOOK"
     [ "$status" -eq 0 ]
-    grep -q "skipped 40nextcloud: no nextcloud_secret" "$CALLS"
+    grep -q "skipped 40nextcloud: no app_password" "$CALLS"
 }
 
 @test "a bad admin user, database name or domain is fatal" {

@@ -25,6 +25,8 @@ echo "mysql \$*" >> "$CALLS"
 case "\$*" in
     *read_only*) [ "\${NC_TEST_READ_ONLY:-0}" = fail ] && exit 1; echo "\${NC_TEST_READ_ONLY:-0}" ;;
     *oc_migrations*) [ "\${NC_TEST_ROWS:-1}" = fail ] && exit 1; echo "\${NC_TEST_ROWS:-1}" ;;
+    *keel_settings*nextcloud_secret*) echo "\${NC_TEST_STORED_SECRET-pair-secret}" ;;
+    *keel_settings*nextcloud_passwordsalt*) echo "\${NC_TEST_STORED_SALT-pair-salt}" ;;
 esac
 EOF
     cat > "$STUBS/redis-cli" <<EOF
@@ -34,11 +36,13 @@ echo "redis-cli \$* auth=\${REDISCLI_AUTH:-none}" >> "$CALLS"
 [ "\${NC_TEST_REDIS:-ok}" = refuse ] && { echo "NOPERM"; exit 0; }
 echo OK
 EOF
-    # php -r CODE FILE: the stub answers what the gate asks of config.php
+    # php -r CODE FILE [KEY]: the stub answers what the gate asks of
+    # config.php and of the pair file
     cat > "$STUBS/php" <<EOF
 #!/bin/bash
 if [ "\$1" = -r ]; then
-    case "\$2" in
+    case "\$*" in
+        *passwordsalt*) printf '%s\\n%s\\n' "\${NC_TEST_PAIR_SECRET:-pair-secret}" "\${NC_TEST_PAIR_SALT:-pair-salt}" ;;
         *redis*) echo redis-pass ;;
         *version*) echo "\${NC_TEST_CONFIG_VERSION:-35.0.2.2}" ;;
         *dbname*) echo "\${NC_TEST_DB_NAME:-nextcloud}" ;;
@@ -63,6 +67,15 @@ EOF
 if [ "\$2" = monitor ]; then echo "Deleted 5: wg0 inet6 fd00::ffff:1/128"; echo "5: wg0 inet6 fd00::ffff:1/128"; exit 0; fi
 [ -n "\${NC_TEST_VIP_HERE:-}" ] && echo "5: wg0    inet6 \$5/128 scope global"
 exit 0
+EOF
+    cat > "$STUBS/systemctl" <<EOF
+#!/bin/bash
+echo "systemctl \$*" >> "$CALLS"
+[ -z "\${NC_TEST_RELOAD_FAILS:-}" ]
+EOF
+    cat > "$STUBS/chown" <<EOF
+#!/bin/bash
+echo "chown \$*" >> "$CALLS"
 EOF
     cat > "$STUBS/logger" <<EOF
 #!/bin/bash
@@ -219,4 +232,62 @@ EOF
     NC_TEST_READ_ONLY=1 NC_TEST_CONFIG_VERSION=34.0.5.1 run "$GATE"
     [ "$status" -eq 0 ]
     run ! grep -q "config:system:set" "$CALLS"
+}
+
+@test "before it opens, the gate writes the pair file from the stored rows and reloads PHP-FPM" {
+    NC_TEST_STORED_SECRET=primary-secret NC_TEST_STORED_SALT=primary-salt run "$GATE"
+    [ "$status" -eq 0 ]
+    grep -q "'secret' => 'primary-secret'" "$NEXTCLOUD_PAIR_CONFIG"
+    grep -q "'passwordsalt' => 'primary-salt'" "$NEXTCLOUD_PAIR_CONFIG"
+    grep -q "'password' => 'redis-pass'" "$NEXTCLOUD_PAIR_CONFIG"
+    [ "$(stat -c %a "$NEXTCLOUD_PAIR_CONFIG")" = 640 ]
+    grep -q "chown root:www-data" "$CALLS"
+    grep -q "systemctl reload php8.4-fpm.service" "$CALLS"
+    grep -q "keel-pair.config.php now holds the secret and the salt of the database" "$CALLS"
+    [ -e "$NEXTCLOUD_OPEN" ]
+}
+
+@test "a pair file that holds the stored rows is left alone" {
+    run "$GATE"
+    [ "$status" -eq 0 ]
+    [ ! -e "$NEXTCLOUD_PAIR_CONFIG" ]
+    run ! grep -q "systemctl reload" "$CALLS"
+    [ -e "$NEXTCLOUD_OPEN" ]
+}
+
+@test "no stored row or a bad one: the pair file stays as it is" {
+    NC_TEST_STORED_SECRET= run "$GATE"
+    [ "$status" -eq 0 ]
+    [ ! -e "$NEXTCLOUD_PAIR_CONFIG" ]
+    [ -e "$NEXTCLOUD_OPEN" ]
+    rm -f "$NEXTCLOUD_OPEN"
+    NC_TEST_STORED_SECRET="it's" run "$GATE"
+    [ "$status" -eq 0 ]
+    [ ! -e "$NEXTCLOUD_PAIR_CONFIG" ]
+    rm -f "$NEXTCLOUD_OPEN"
+    NC_TEST_DB_NAME='x;y' NC_TEST_STORED_SECRET=other run "$GATE"
+    [ "$status" -eq 0 ]
+    [ ! -e "$NEXTCLOUD_PAIR_CONFIG" ]
+}
+
+@test "a pair file that cannot be written keeps the site closed" {
+    export NEXTCLOUD_PAIR_CONFIG="$SCRATCH/none/keel-pair.config.php"
+    NC_TEST_STORED_SECRET=other run "$GATE"
+    [ "$status" -eq 1 ]
+    [[ "$output" == *"cannot write beside"* ]]
+    [ ! -e "$NEXTCLOUD_OPEN" ]
+}
+
+@test "PHP-FPM that does not reload keeps the site closed" {
+    NC_TEST_STORED_SECRET=other NC_TEST_RELOAD_FAILS=1 run "$GATE"
+    [ "$status" -eq 1 ]
+    [[ "$output" == *"php8.4-fpm did not reload"* ]]
+    [ ! -e "$NEXTCLOUD_OPEN" ]
+}
+
+@test "a closed node follows the stored rows too" {
+    NC_TEST_READ_ONLY=1 NC_TEST_STORED_SECRET=primary-secret run "$GATE"
+    [ "$status" -eq 0 ]
+    grep -q "'secret' => 'primary-secret'" "$NEXTCLOUD_PAIR_CONFIG"
+    [ ! -e "$NEXTCLOUD_OPEN" ]
 }
