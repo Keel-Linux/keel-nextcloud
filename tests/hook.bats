@@ -141,7 +141,7 @@ _conf() {
     grep -q "occ user:resetpassword --password-from-env admin" "$CALLS"
     [ "$(cat "$SCRATCH/oc_pass")" = "OC_PASS=admin-secret-pass" ]
     grep -q "occ background:cron" "$CALLS"
-    grep -q "systemctl enable --now keel-nextcloud-gate.timer" "$CALLS"
+    grep -q "systemctl enable --now keel-nextcloud-gate.timer keel-nextcloud-gate-watch.service" "$CALLS"
     [ -e "$NEXTCLOUD_READY" ]
     [[ "$output" == *"administrator 'admin' set from APP_PASS (17 characters)"* ]]
 }
@@ -292,7 +292,7 @@ EOF
     [[ "$output" == *"php8.4-fpm did not start"* ]]
     NC_TEST_UNIT_FAILS=keel-nextcloud-gate.timer run "$HOOK"
     [ "$status" -eq 1 ]
-    [[ "$output" == *"cannot start keel-nextcloud-gate.timer"* ]]
+    [[ "$output" == *"cannot start keel-nextcloud-gate.timer and keel-nextcloud-gate-watch.service"* ]]
 }
 
 @test "a database that does not answer is fatal" {

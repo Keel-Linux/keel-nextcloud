@@ -56,9 +56,11 @@ while [ "\$1" != -- ]; do shift; done
 shift
 exec "\$@"
 EOF
-    # ip -o address show to ADDRESS: one line when NC_TEST_VIP_HERE is set
+    # ip -o address show to ADDRESS: one line when NC_TEST_VIP_HERE is set.
+    # ip -o monitor address: two events, then the end of the stream.
     cat > "$STUBS/ip" <<EOF
 #!/bin/bash
+if [ "\$2" = monitor ]; then echo "Deleted 5: wg0 inet6 fd00::ffff:1/128"; echo "5: wg0 inet6 fd00::ffff:1/128"; exit 0; fi
 [ -n "\${NC_TEST_VIP_HERE:-}" ] && echo "5: wg0    inet6 \$5/128 scope global"
 exit 0
 EOF
@@ -160,6 +162,12 @@ EOF
     [ -e "$NEXTCLOUD_OPEN" ]
     run "$GATE"
     [ ! -e "$NEXTCLOUD_OPEN" ]
+}
+
+@test "--watch runs one pass at the start and one at each address event" {
+    run "$GATE" --watch
+    [ "$status" -eq 0 ]
+    [ "$(grep -c "read_only" "$CALLS")" -eq 3 ]
 }
 
 @test "--state prints the answer and changes nothing" {

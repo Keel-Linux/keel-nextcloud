@@ -22,7 +22,24 @@
 #
 #   keel-nextcloud-gate          one pass
 #   keel-nextcloud-gate --state  print open or closed, change nothing
+#   keel-nextcloud-gate --watch  one pass at each change of an address of
+#                                this node (keel-nextcloud-gate-watch.service)
+#
+# Why --watch: with the timer alone, the old holder kept its gate open up
+# to one tick after the VIP left it, and the two gates were open together
+# for about 70 ms (second test). keel moves the VIP with no overlap, so a
+# pass at the moment the VIP leaves closes the old gate before the new
+# holder can open (it opens only after the VIP, read_only and the role
+# file agree, seconds later).
 set -u
+
+if [[ "${1-}" == --watch ]]; then
+    "$0"
+    ip -o monitor address | while read -r _; do
+        "$0"
+    done
+    exit 0
+fi
 
 NEXTCLOUD_LIB="${NEXTCLOUD_LIB:-/usr/lib/inithooks/lib/nextcloud.sh}"
 # shellcheck source=../inithooks/lib/nextcloud.sh

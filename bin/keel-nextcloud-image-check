@@ -29,6 +29,7 @@ for file in /etc/nginx/keel-default.d/60-keel-nextcloud.conf \
         /etc/redis/redis.conf.d/20-keel-nextcloud.conf \
         /etc/systemd/system/keel-nextcloud-gate.timer \
         /etc/systemd/system/keel-nextcloud-cron.timer \
+        /etc/systemd/system/keel-nextcloud-gate-watch.service \
         /usr/lib/keel-nextcloud/keel-nextcloud-gate \
         /usr/lib/inithooks/firstboot.d/40nextcloud \
         /usr/share/keel/appliances/nextcloud.yaml; do

@@ -1,0 +1,11 @@
+[Unit]
+Description=keel-nextcloud: run the gate when an address of this node changes (the VIP)
+After=mariadb.service redis-server.service
+
+[Service]
+ExecStart=/usr/lib/keel-nextcloud/keel-nextcloud-gate --watch
+Restart=always
+RestartSec=2
+
+[Install]
+WantedBy=multi-user.target

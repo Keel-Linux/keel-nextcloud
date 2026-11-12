@@ -49,6 +49,7 @@ NEXTCLOUD_SESSION_POOL="${NEXTCLOUD_SESSION_POOL:-/etc/php/8.4/fpm/pool.d/zz-kee
 NEXTCLOUD_FPM_SERVICE="${NEXTCLOUD_FPM_SERVICE:-php8.4-fpm}"
 NEXTCLOUD_REDIS_SERVICE="${NEXTCLOUD_REDIS_SERVICE:-redis-server}"
 NEXTCLOUD_GATE_UNIT="${NEXTCLOUD_GATE_UNIT:-keel-nextcloud-gate.timer}"
+NEXTCLOUD_WATCH_UNIT="${NEXTCLOUD_WATCH_UNIT:-keel-nextcloud-gate-watch.service}"
 
 admin_user=$(nextcloud_admin_user "${APP_ADMIN_USER-}") \
     || fatal "'${APP_ADMIN_USER-}' is not an account name this appliance will create"
@@ -123,8 +124,8 @@ read_only=$(mysql --batch --skip-column-names --execute='SELECT @@global.read_on
 mark_ready() {
     mkdir -p "$(dirname "$NEXTCLOUD_READY")"
     : > "$NEXTCLOUD_READY" || fatal "cannot write $NEXTCLOUD_READY"
-    systemctl enable --now "$NEXTCLOUD_GATE_UNIT" \
-        || fatal "cannot start $NEXTCLOUD_GATE_UNIT"
+    systemctl enable --now "$NEXTCLOUD_GATE_UNIT" "$NEXTCLOUD_WATCH_UNIT" \
+        || fatal "cannot start $NEXTCLOUD_GATE_UNIT and $NEXTCLOUD_WATCH_UNIT"
 }
 
 # addresses: the addresses of this node, one per line
