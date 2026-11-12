@@ -233,6 +233,9 @@ assert c["apps_paths"][1]["writable"] is True
     [ "$(nextcloud_gate yes '' 1)" = closed ]
     [ "$(nextcloud_gate yes '' unknown)" = closed ]
     [ "$(nextcloud_gate yes 'role=replica' 0)" = closed ]
+    [ "$(nextcloud_gate yes $'role=primary\nreplicates=database,files' 0)" = open ]
+    [ "$(nextcloud_gate yes $'role=primary\nreplicates=database,files' 1)" = closed ]
+    [ "$(nextcloud_gate yes 'replicates=database' 0)" = closed ]
 }
 
 @test "gate_action flushes Redis when the node becomes the writer" {

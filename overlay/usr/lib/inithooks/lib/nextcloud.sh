@@ -303,13 +303,20 @@ EOF
 # serve, "closed" when it must not. Only a node that takes writes serves:
 # a node with a read-only database cannot serve sync clients, not even for
 # reads (first test), and its Redis is not the one of the writer.
+#
+# On a pair both must agree: keel's role file says role=primary, and the
+# database takes writes. read_only alone is not enough: at a failover keel
+# turns read_only off some seconds before it flips the Syncthing folders
+# and writes the role file. The role file alone is not enough either: a
+# primary that stopped hard still says role=primary when it boots, read
+# only and fenced (second test). A node with no role file is standalone.
 nextcloud_gate() {
     local ready=${1-} role_text=${2-} read_only=${3-}
     if [[ "$ready" != yes ]]; then
         echo closed
         return 0
     fi
-    if grep -qx 'role=replica' <<< "$role_text"; then
+    if [[ -n "$role_text" ]] && ! grep -qx 'role=primary' <<< "$role_text"; then
         echo closed
         return 0
     fi

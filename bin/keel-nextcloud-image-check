@@ -25,6 +25,7 @@ done
 for file in /etc/nginx/keel-default.d/60-keel-nextcloud.conf \
         /etc/nginx/keel-front.d/60-keel-nextcloud.conf \
         /etc/nginx/keel-static.d/60-keel-nextcloud.conf \
+        /etc/coreruleset/plugins/keel-nextcloud-before.conf \
         /etc/redis/redis.conf.d/20-keel-nextcloud.conf \
         /etc/systemd/system/keel-nextcloud-gate.timer \
         /etc/systemd/system/keel-nextcloud-cron.timer \
