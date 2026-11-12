@@ -2,7 +2,7 @@ manifest_version: 1
 kind: appliance
 name: nextcloud
 title: Keel Nextcloud
-summary: Nextcloud on nginx, PHP-FPM, MariaDB and Redis (the LNMP stack), alone or as a replicated pair (0059, 0086)
+summary: Nextcloud on nginx, PHP-FPM, MariaDB and Redis (the LNMP stack), alone or as a replicated pair (0059, 0087)
 base: lnmp
 # Redis is this layer's: one on each node, on its socket, not durable.
 # Only the node that takes writes serves (the gate), so only its Redis is
@@ -33,7 +33,7 @@ secrets:
     generate: required
     shared: true
 # state: the directories Nextcloud writes at run time (first test of
-# 0086): the data directory (the files, appdata_<instanceid> with the
+# 0087): the data directory (the files, appdata_<instanceid> with the
 # previews, the cache of the app store and the key pair of the server) and
 # the apps from the app store. On a database pair one Syncthing folder
 # replicates each, send-only on the primary and receive-only on the

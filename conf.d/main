@@ -3,13 +3,13 @@
 # both ports, Redis on its socket, and no installation: the first boot
 # (overlay firstboot.d/40nextcloud) makes the site from the instance
 # description, because a layer is built once and reused by every machine,
-# and a secret chosen here would be the same everywhere (decision 0086).
+# and a secret chosen here would be the same everywhere (decision 0087).
 #
 # The schema is not made here either. A schema in the image is a local
 # database on a node that becomes a replica, and keel refuses to replace it
 # without --destroy-local-database.
 #
-# Not run on a real build yet: the prototype has no image (0086).
+# Not run on a real build yet: the prototype has no image (0087).
 
 NCROOT=/var/www/nextcloud
 NCDATA=/var/lib/nextcloud/data

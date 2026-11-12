@@ -10,7 +10,7 @@
 # The functions that handle one are shell functions, and a digest is made
 # by printf (a builtin) into sha256sum on a pipe.
 #
-# The design is decision note 0086 of the handbook (proposed).
+# The design is decision note 0087 of the handbook (proposed).
 
 NEXTCLOUD_ROOT="${NEXTCLOUD_ROOT:-/var/www/nextcloud}"
 NEXTCLOUD_CONFIG_DIR="${NEXTCLOUD_CONFIG_DIR:-$NEXTCLOUD_ROOT/config}"
@@ -18,7 +18,7 @@ NEXTCLOUD_CONFIG="${NEXTCLOUD_CONFIG:-$NEXTCLOUD_CONFIG_DIR/config.php}"
 # The values that both nodes of a pair must hold: instanceid, secret,
 # passwordsalt and the Redis account. Nextcloud reads every
 # config/*.config.php after config.php, and the value of such a file wins
-# (first test, 0086). Both nodes render the same file from the shared
+# (first test, 0087). Both nodes render the same file from the shared
 # secrets, so neither copies anything from the other.
 NEXTCLOUD_PAIR_CONFIG="${NEXTCLOUD_PAIR_CONFIG:-$NEXTCLOUD_CONFIG_DIR/keel-pair.config.php}"
 NEXTCLOUD_DATA="${NEXTCLOUD_DATA:-/var/lib/nextcloud/data}"
@@ -172,7 +172,7 @@ nextcloud_pair_config_php() {
     instance=$(nextcloud_instance_id "$secret") || return 1
     cat <<EOF
 <?php
-// keel-nextcloud: the values both nodes of a pair hold (decision 0086).
+// keel-nextcloud: the values both nodes of a pair hold (decision 0087).
 // Written by the first boot from the shared secrets. A value here wins
 // over config.php.
 \$CONFIG = [
@@ -229,7 +229,7 @@ EOF
 # nextcloud_node_config_json, as entries of a PHP array, for the config.php
 # of a replica. A replica cannot run occ config:import at its first boot:
 # occ refuses to start while the data directory has not arrived from the
-# primary (second test of 0086).
+# primary (second test of 0087).
 nextcloud_node_config_php() {
     local domain=${1-} address entry
     [[ -n "$domain" ]] || return 1
@@ -275,7 +275,7 @@ nextcloud_redis_acl() {
     main=$(nextcloud_redis_digest "${1-}") || return 1
     session=$(nextcloud_redis_digest "${2-}") || return 1
     cat <<EOF
-# keel-nextcloud: written by the first boot (decision 0086). Digests only.
+# keel-nextcloud: written by the first boot (decision 0087). Digests only.
 user default on nopass -@all +info
 user $NEXTCLOUD_REDIS_USER on #$main ~* &* +@all
 user $NEXTCLOUD_REDIS_SESSION_USER on #$session resetkeys ~$NEXTCLOUD_SESSION_PREFIX* resetchannels -@all +get +set +setex +psetex +del +unlink +expire +pexpire +exists +ttl +pttl +eval +evalsha +script|load +hello +auth +select +ping +info
@@ -288,7 +288,7 @@ nextcloud_session_pool() {
     local pass=${1-}
     [[ -n "$pass" ]] || return 1
     cat <<EOF
-; keel-nextcloud: written by the first boot (decision 0086), mode 0600.
+; keel-nextcloud: written by the first boot (decision 0087), mode 0600.
 [www]
 php_admin_value[session.save_handler] = redis
 php_admin_value[session.save_path] = "unix://$NEXTCLOUD_REDIS_SOCKET?auth[user]=$NEXTCLOUD_REDIS_SESSION_USER&auth[pass]=$pass&database=0&prefix=$NEXTCLOUD_SESSION_PREFIX"

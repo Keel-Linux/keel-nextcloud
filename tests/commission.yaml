@@ -1,5 +1,5 @@
 # The commissioning contract of keel-nextcloud (handbook decision 0075), a
-# DRAFT of the prototype (decision 0086, proposed). The shared runner,
+# DRAFT of the prototype (decision 0087, proposed). The shared runner,
 # bin/keel-commission of Keel-Linux/.github, reads it. No image exists yet,
 # so no pass has run.
 #
@@ -88,7 +88,7 @@ proofs:
 services: [nginx, mariadb, php8.4-fpm, redis-server, webmin, cron, postfix]
 urls:
   # status.php answers 200 even with Redis down or a read-only database
-  # (first test of 0086): it is not a health check, so the contract asks
+  # (first test of 0087): it is not a health check, so the contract asks
   # for the login page too
   - {url: 'https://127.0.0.1/status.php', status: 200}
   - {url: 'https://127.0.0.1/login', status: 200}

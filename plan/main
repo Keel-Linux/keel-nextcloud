@@ -7,7 +7,7 @@
 php-cli
 
 /* Nextcloud 35: the required modules and the recommended ones
-   (admin manual, "Preparing PHP"; first test of 0086) */
+   (admin manual, "Preparing PHP"; first test of 0087) */
 php-gd
 php-xml
 php-mbstring
@@ -21,7 +21,7 @@ php-imagick
 php-apcu            /* memcache.local */
 php-redis           /* memcache.distributed, memcache.locking, the sessions */
 
-/* Redis 8 of Debian, on its socket (decision 0086) */
+/* Redis 8 of Debian, on its socket (decision 0087) */
 redis-server
 
 /* the build unpacks a .tar.bz2 and checks its signature */

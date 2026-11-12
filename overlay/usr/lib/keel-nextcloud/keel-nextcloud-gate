@@ -1,5 +1,5 @@
 #!/bin/bash
-# The gate of keel-nextcloud (decision 0086): run by keel-nextcloud-gate.timer
+# The gate of keel-nextcloud (decision 0087): run by keel-nextcloud-gate.timer
 # every few seconds. It opens the route of the site (the mark NEXTCLOUD_OPEN,
 # which 60-keel-nextcloud.conf reads) only on the node that takes writes.
 #

@@ -1,5 +1,5 @@
 # keel-nextcloud: Nextcloud on nginx, PHP-FPM, MariaDB and Redis, built as a
-# layer on the lnmp layer (handbook decisions 0059 and 0086, proposed):
+# layer on the lnmp layer (handbook decisions 0059 and 0087, proposed):
 #
 #     bt-layer nextcloud --parent lnmp
 #
