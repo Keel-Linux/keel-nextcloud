@@ -75,6 +75,9 @@ ROUTE=/etc/nginx/keel-default.d/60-keel-nextcloud.conf
 [ -f "$ROUTE" ] || fatal "$ROUTE is not in the image"
 grep -qxF 'include /etc/nginx/keel-default.d/*.conf;' /etc/nginx/snippets/keel-web-site.conf \
     || fatal "the default site of keel-web does not include keel-default.d: keel-web 0.4.0 is the least"
+# The route reads $keel_web_https, the map of keel-web 0.4.4.
+[ -f /etc/nginx/conf.d/keel-web-scheme.conf ] \
+    || fatal "/etc/nginx/conf.d/keel-web-scheme.conf is not there: keel-web 0.4.4 is the least"
 NGINX_TEST=/etc/nginx/keel-nextcloud-test.conf
 cat > "$NGINX_TEST" <<'EOF'
 pid /run/keel-nextcloud-test.pid;
@@ -82,6 +85,7 @@ error_log /dev/null;
 events { }
 http {
     include /etc/nginx/mime.types;
+    include /etc/nginx/conf.d/keel-web-scheme.conf;
     server {
         listen 127.0.0.1:65080 default_server;
         root /var/www/keel-default;
