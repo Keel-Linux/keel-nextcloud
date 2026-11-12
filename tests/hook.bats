@@ -68,7 +68,7 @@ EOF
 #!/bin/bash
 if [ "\$1" = -l ]; then
     echo "php -l \$2" >> "$CALLS"
-    [ -n "\${NC_TEST_LINT_FAILS:-}" ] && exit 255
+    case "\$2" in *"\${NC_TEST_LINT_FAILS:-none}"*) exit 255 ;; esac
     exit 0
 fi
 shift
@@ -189,6 +189,8 @@ _conf() {
     [[ "$output" == *"this node is a replica"* ]]
     grep -q "'version' => '35.0.2.2'" "$NEXTCLOUD_CONFIG"
     grep -q "'installed' => true" "$NEXTCLOUD_CONFIG"
+    grep -q "'trusted_domains' => \['localhost', 'cloud.example.org', '\[2804:db8::5\]', '10.0.0.5'\]" "$NEXTCLOUD_CONFIG"
+    ! grep -q "config:import" "$CALLS"
     ! grep -q "CREATE" "$CALLS"
     ! grep -q "maintenance:install" "$CALLS"
     [ -e "$NEXTCLOUD_READY" ]
@@ -206,6 +208,21 @@ _conf() {
     NC_TEST_READ_ONLY=1 run "$HOOK"
     [ "$status" -eq 0 ]
     [ "$(cat "$NEXTCLOUD_CONFIG")" = keep ]
+}
+
+@test "a replica config.php that is not valid PHP is fatal" {
+    NC_TEST_LINT_FAILS=config/config.php NC_TEST_READ_ONLY=1 run "$HOOK"
+    [ "$status" -eq 1 ]
+    [[ "$output" == *"the config.php just written is not valid PHP"* ]]
+}
+
+@test "the primary removes the log that the install wrote into the data directory" {
+    export NEXTCLOUD_DATA="$SCRATCH/data"
+    mkdir -p "$NEXTCLOUD_DATA"
+    : > "$NEXTCLOUD_DATA/nextcloud.log"
+    run "$HOOK"
+    [ "$status" -eq 0 ]
+    [ ! -e "$NEXTCLOUD_DATA/nextcloud.log" ]
 }
 
 @test "a replica fails when the code has no version" {
@@ -255,7 +272,7 @@ _conf() {
 }
 
 @test "a pair file that is not valid PHP is fatal" {
-    NC_TEST_LINT_FAILS=1 run "$HOOK"
+    NC_TEST_LINT_FAILS=keel-pair run "$HOOK"
     [ "$status" -eq 1 ]
     [[ "$output" == *"not valid PHP"* ]]
 }

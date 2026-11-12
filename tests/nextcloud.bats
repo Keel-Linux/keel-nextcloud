@@ -173,6 +173,20 @@ assert c["apps_paths"][1]["writable"] is True
     [ "$status" -eq 1 ]
 }
 
+@test "node_config_php lists the same settings as PHP entries" {
+    run nextcloud_node_config_php cloud.example.org 2804:db8::1 "" 10.0.0.5
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"'trusted_domains' => ['localhost', 'cloud.example.org', '[2804:db8::1]', '10.0.0.5'],"* ]]
+    [[ "$output" == *"'datadirectory' => '/var/lib/nextcloud/data',"* ]]
+    [[ "$output" == *"'loglevel' => 3,"* ]]
+    [[ "$output" == *"'writable' => true"* ]]
+}
+
+@test "node_config_php fails with no domain" {
+    run nextcloud_node_config_php ""
+    [ "$status" -eq 1 ]
+}
+
 @test "redis_digest is the SHA-256 of the password" {
     run nextcloud_redis_digest "pass"
     [ "$output" = "$(printf %s pass | sha256sum | cut -d' ' -f1)" ]

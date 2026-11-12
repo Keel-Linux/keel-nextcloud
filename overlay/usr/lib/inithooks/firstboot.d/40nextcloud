@@ -127,13 +127,23 @@ mark_ready() {
         || fatal "cannot start $NEXTCLOUD_GATE_UNIT"
 }
 
+# addresses: the addresses of this node, one per line
+addresses() {
+    hostname -I 2> /dev/null | tr ' ' '\n'
+}
+
 # replica_config: a config.php that says "installed" at the version of the
-# code, with no install run. The database comes from the primary.
+# code, with the settings of this node, and no install and no occ run. The
+# database and the data directory come from the primary.
 replica_config() {
-    local version
+    local version node
+    local -a ips
     [[ ! -e "$NEXTCLOUD_CONFIG" ]] || return 0
     version=$(nextcloud_code_version "$NEXTCLOUD_ROOT/version.php") \
         || fatal "cannot read the version of the code in $NEXTCLOUD_ROOT/version.php"
+    mapfile -t ips < <(addresses)
+    # the domain is checked at the top, so this cannot fail
+    node=$(nextcloud_node_config_php "$domain" "${ips[@]}")
     write_file "$NEXTCLOUD_CONFIG" "$NEXTCLOUD_WEB_USER:$NEXTCLOUD_WEB_USER" 0640 <<EOF
 <?php
 \$CONFIG = [
@@ -146,20 +156,24 @@ replica_config() {
   'mysql.utf8mb4' => true,
   'installed' => true,
   'version' => $(nextcloud_php_quote "$version"),
+$node
 ];
 EOF
+    php -l "$NEXTCLOUD_CONFIG" > /dev/null || fatal "the config.php just written is not valid PHP"
 }
 
 node_config() {
-    local -a addresses
-    mapfile -t addresses < <(hostname -I 2> /dev/null | tr ' ' '\n')
-    nextcloud_node_config_json "$domain" "${addresses[@]}" | occ config:import > /dev/null \
+    local -a ips
+    mapfile -t ips < <(addresses)
+    nextcloud_node_config_json "$domain" "${ips[@]}" | occ config:import > /dev/null \
         || fatal "occ config:import of the settings of this node failed"
+    # The install wrote its log into the data directory before the setting
+    # of the log file came; the data directory is a replicated path.
+    rm -f "$NEXTCLOUD_DATA/nextcloud.log"
 }
 
 if nextcloud_is_replica "$role" "$read_only"; then
     replica_config
-    node_config
     mark_ready
     echo "this node is a replica (role '${role:-none}', read_only $read_only):" \
         "the site and its database come from the primary; nothing was written" \

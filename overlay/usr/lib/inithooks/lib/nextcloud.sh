@@ -225,6 +225,40 @@ nextcloud_node_config_json() {
 EOF
 }
 
+# nextcloud_node_config_php DOMAIN ADDRESS...: the same settings as
+# nextcloud_node_config_json, as entries of a PHP array, for the config.php
+# of a replica. A replica cannot run occ config:import at its first boot:
+# occ refuses to start while the data directory has not arrived from the
+# primary (second test of 0086).
+nextcloud_node_config_php() {
+    local domain=${1-} address entry
+    [[ -n "$domain" ]] || return 1
+    shift
+    entry="'localhost', $(nextcloud_php_quote "$domain")"
+    for address in "$@"; do
+        [[ -n "$address" ]] || continue
+        if [[ $address == *:* ]]; then
+            entry+=", $(nextcloud_php_quote "[$address]")"
+        else
+            entry+=", $(nextcloud_php_quote "$address")"
+        fi
+    done
+    cat <<EOF
+  'trusted_domains' => [$entry],
+  'overwrite.cli.url' => $(nextcloud_php_quote "https://$domain"),
+  'datadirectory' => $(nextcloud_php_quote "$NEXTCLOUD_DATA"),
+  'logfile' => $(nextcloud_php_quote "$NEXTCLOUD_LOG"),
+  'log_type' => 'file',
+  'loglevel' => 3,
+  'apps_paths' => [
+    ['path' => $(nextcloud_php_quote "$NEXTCLOUD_ROOT/apps"), 'url' => '/apps', 'writable' => false],
+    ['path' => $(nextcloud_php_quote "$NEXTCLOUD_ROOT/custom_apps"), 'url' => '/custom_apps', 'writable' => true],
+  ],
+  'maintenance_window_start' => 4,
+  'htaccess.RewriteBase' => '/',
+EOF
+}
+
 # nextcloud_redis_digest PASS: the SHA-256 of PASS, as Redis' ACL takes it
 nextcloud_redis_digest() {
     local digest
