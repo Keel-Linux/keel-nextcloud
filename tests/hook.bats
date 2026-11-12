@@ -18,7 +18,15 @@ setup() {
     : > "$CALLS"
 
     IH="$SCRATCH/inithooks"
-    mkdir -p "$IH/lib"
+    mkdir -p "$IH/lib" "$IH/bin"
+    # the dialog: what a person types at the console (NC_TEST_TYPED)
+    cat > "$IH/bin/nextcloud.py" <<EOF
+#!/bin/bash
+echo "nextcloud.py \$*" >> "$CALLS"
+echo "APP_PASS=\${NC_TEST_TYPED-typed-at-the-console}"
+EOF
+    chmod +x "$IH/bin/nextcloud.py"
+    unset INITHOOKS_UNATTENDED
     ln -s "$(cd "$REPO/overlay/usr/lib/inithooks/lib" && pwd)/nextcloud.sh" "$IH/lib/nextcloud.sh"
     _console deferred
 
@@ -109,6 +117,7 @@ EOF
 # has console_deferred, "skipped" has only console_skipped.
 _console() {
     {
+        echo 'console_unattended() { [[ -n "${INITHOOKS_UNATTENDED:-}" && "$INITHOOKS_UNATTENDED" != no ]]; }'
         echo "console_skipped() { echo \"skipped \$1: \$2\" >> '$CALLS'; }"
         if [ "$1" = deferred ]; then
             echo "console_deferred() { echo \"deferred \$1: \$2\" >> '$CALLS'; }"
@@ -149,7 +158,7 @@ _conf() {
 @test "no secret is an argument of any call" {
     run "$HOOK"
     [ "$status" -eq 0 ]
-    ! grep -q -e admin-secret-pass -e shared-secret -e shared-salt -e redis-main-pass -e redis-session-pass "$CALLS"
+    run ! grep -q -e admin-secret-pass -e shared-secret -e shared-salt -e redis-main-pass -e redis-session-pass "$CALLS"
 }
 
 @test "the pair file, the ACL and the pool are written with their modes" {
@@ -160,7 +169,7 @@ _conf() {
     [ "$(stat -c %a "$NEXTCLOUD_PAIR_CONFIG")" = 640 ]
     [ "$(stat -c %a "$NEXTCLOUD_REDIS_ACL")" = 640 ]
     [ "$(stat -c %a "$NEXTCLOUD_SESSION_POOL")" = 600 ]
-    ! grep -q redis-main-pass "$NEXTCLOUD_REDIS_ACL"
+    run ! grep -q redis-main-pass "$NEXTCLOUD_REDIS_ACL"
     grep -q "auth\[user\]=nextcloud-session&auth\[pass\]=redis-session-pass" "$NEXTCLOUD_SESSION_POOL"
     grep -q "chown root:redis" "$CALLS"
     grep -q "systemctl restart redis-server.service" "$CALLS"
@@ -178,7 +187,7 @@ _conf() {
     NC_TEST_INSTALLED=1 run "$HOOK"
     [ "$status" -eq 0 ]
     [[ "$output" == *"already installed"* ]]
-    ! grep -q "maintenance:install" "$CALLS"
+    run ! grep -q "maintenance:install" "$CALLS"
 }
 
 @test "a replica: a config.php at the version of the code, no database write" {
@@ -190,9 +199,9 @@ _conf() {
     grep -q "'version' => '35.0.2.2'" "$NEXTCLOUD_CONFIG"
     grep -q "'installed' => true" "$NEXTCLOUD_CONFIG"
     grep -q "'trusted_domains' => \['localhost', 'cloud.example.org', '\[2804:db8::5\]', '10.0.0.5'\]" "$NEXTCLOUD_CONFIG"
-    ! grep -q "config:import" "$CALLS"
-    ! grep -q "CREATE" "$CALLS"
-    ! grep -q "maintenance:install" "$CALLS"
+    run ! grep -q "config:import" "$CALLS"
+    run ! grep -q "CREATE" "$CALLS"
+    run ! grep -q "maintenance:install" "$CALLS"
     [ -e "$NEXTCLOUD_READY" ]
 }
 
@@ -200,7 +209,7 @@ _conf() {
     NC_TEST_READ_ONLY=1 run "$HOOK"
     [ "$status" -eq 0 ]
     [[ "$output" == *"read_only 1"* ]]
-    ! grep -q "CREATE" "$CALLS"
+    run ! grep -q "CREATE" "$CALLS"
 }
 
 @test "a replica keeps a config.php that is already there" {
@@ -238,7 +247,39 @@ _conf() {
     [ "$status" -eq 0 ]
     grep -q "deferred 40nextcloud: no app_password redis_password" "$CALLS"
     [ ! -e "$NEXTCLOUD_PAIR_CONFIG" ]
-    ! grep -q mysql "$CALLS"
+    run ! grep -q mysql "$CALLS"
+}
+
+@test "no administrator password and nobody at the console: deferred, nothing asked" {
+    _conf APP_PASS=
+    INITHOOKS_UNATTENDED=yes run "$HOOK"
+    [ "$status" -eq 0 ]
+    grep -q "deferred 40nextcloud: no app_password" "$CALLS"
+    run ! grep -q "nextcloud.py" "$CALLS"
+    [ ! -e "$NEXTCLOUD_PAIR_CONFIG" ]
+}
+
+@test "no administrator password and a person at the console: the dialog asks it" {
+    _conf APP_PASS=
+    run "$HOOK"
+    [ "$status" -eq 0 ]
+    grep -q "nextcloud.py APP_PASS" "$CALLS"
+    [ "$(cat "$SCRATCH/oc_pass")" = "OC_PASS=typed-at-the-console" ]
+}
+
+@test "an empty answer at the console is fatal" {
+    _conf APP_PASS=
+    NC_TEST_TYPED= run "$HOOK"
+    [ "$status" -eq 1 ]
+    [[ "$output" == *"no password given"* ]]
+}
+
+@test "a missing shared secret is never asked, even at a console" {
+    _conf APP_PASS= KEEL_SECRET_NEXTCLOUD_SECRET=
+    run "$HOOK"
+    [ "$status" -eq 0 ]
+    grep -q "deferred 40nextcloud: no app_password nextcloud_secret" "$CALLS"
+    run ! grep -q "nextcloud.py" "$CALLS"
 }
 
 @test "an inithooks without console_deferred records the hook as skipped" {

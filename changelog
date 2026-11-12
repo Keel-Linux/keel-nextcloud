@@ -1,0 +1,23 @@
+keel-nextcloud-19.0 (1) keel; urgency=medium
+
+  * The first layer of Nextcloud on lnmp (handbook decision 0087):
+    Nextcloud 35.0.2 from the upstream tarball, pinned by sha256 and
+    checked against the signature of the key "Nextcloud Security"
+    (28806A878AE423A28372792ED75899B9A724937A).
+  * Redis 8 of Debian on its socket for the distributed cache, the file
+    locks and the PHP sessions, APCu for the local cache. Two ACL users,
+    the second for the session keys only; log level 3.
+  * Only the node that takes writes serves: keel-nextcloud-gate opens the
+    site when read_only is 0, keel's role file says role=primary and the
+    VIP of the role file is on the node, at each address event and every
+    5 s; it empties Redis when the node becomes the writer, and a replica
+    copies the version of the code after an upgrade of the primary.
+  * The first boot writes keel-pair.config.php from four shared secrets,
+    installs Nextcloud on a primary or a standalone node, writes the whole
+    config.php of a replica, and asks the administrator password at a
+    console through bin/nextcloud.py.
+  * The front of keel-web: the paths of the sync clients go past Anubis,
+    and a plugin of the rule set allows the DAV methods on the DAV paths
+    and does not read the body of a DAV PUT.
+
+ -- KeelLinux maintainers <admin@keellinux.org>  Thu, 12 Nov 2026 03:00:00 +0000
