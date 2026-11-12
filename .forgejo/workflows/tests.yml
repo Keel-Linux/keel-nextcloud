@@ -1,0 +1,59 @@
+# Tests of the keel-nextcloud appliance recipe (decision 0006 point 4), on
+# the self-hosted runners of Forgejo (decision 0056):
+#   tests:      the first boot library, the first boot hook, the gate,
+#               keel-occ and the image check, under bats and kcov, threshold
+#               committed here
+#   appliance:  fetch the published layer, verify it, assemble it and boot
+#               it in LXC; no layer is published yet (allow_unpublished)
+#   commission: the commissioning contract, tests/commission.yaml (0075)
+#   package:    a change that ships needs an entry in ./changelog
+name: tests
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  tests:
+    # tests/coverage.sh measures five shell files. The threshold is the
+    # lowest of them (the gate, 95.35 percent) rounded down, and is only
+    # ever raised (decision 0006); the project floor is 90. This job
+    # produces the check "tests / coverage".
+    runs-on: keel-host
+    uses: keel-linux/.github/.github/workflows/test-shell.yml@main
+    with:
+      threshold: 95
+  appliance:
+    # The boot test of the published layer (test-appliance.yml). No layer
+    # of nextcloud is on the mirror yet, so the job says that nothing was
+    # booted; the exemption becomes an error when the layer is published,
+    # and the line then must go, with a tests/boot-test.sh in this
+    # repository. Check "appliance / boot-published-layer".
+    if: vars.KEEL_LXC_RUNNER == 'true'
+    runs-on: keel-lxc
+    uses: keel-linux/.github/.github/workflows/test-appliance.yml@main
+    with:
+      appliance: nextcloud
+      parent: lnmp
+      timeout: 60
+      allow_unpublished: true
+  commission:
+    # keel-commission --check of Keel-Linux/.github reads the contract and
+    # says whether it is valid. It runs no machine. Check
+    # "commission / contract".
+    runs-on: keel-host
+    uses: keel-linux/.github/.github/workflows/commission-contract.yml@main
+  package:
+    # Only on a pull request: require-changelog compares the two commits of
+    # the pull request. What bt-layer records in the manifest is the top
+    # entry of ./changelog. Check "package / changelog".
+    if: github.event_name == 'pull_request'
+    runs-on: keel-host
+    uses: keel-linux/.github/.github/workflows/require-changelog.yml@main
+    with:
+      changelog: changelog
+      exempt: '^(tests/|docs/|\.github/|\.forgejo/|keel/|README|COVERAGE\.md|LICENSE|\.gitignore|\.art/)'
