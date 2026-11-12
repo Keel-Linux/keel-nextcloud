@@ -1,0 +1,116 @@
+# The commissioning contract of keel-nextcloud (handbook decision 0075), a
+# DRAFT of the prototype (decision 0086, proposed). The shared runner,
+# bin/keel-commission of Keel-Linux/.github, reads it. No image exists yet,
+# so no pass has run.
+#
+# Known gap: the first boot hook has no dialog yet (keel-wordpress has
+# bin/wordpress.py), so the question nextcloud_password below cannot be
+# answered at a console. The pass lxc-preseed does not need it.
+contract: 1
+appliance: nextcloud
+secrets: [root, db, app]
+questions:
+  - id: root_password
+    hook: 30rootpass
+    prompt: Root Password
+    answer: secret:root
+  - id: db_password
+    hook: 35mysqlpass
+    prompt: MariaDB password
+    answer: secret:db
+  - id: mode
+    hook: 75keel-role
+    prompt: Installation mode
+    type: choice
+    answer: '{ret}'
+  - id: nextcloud_password
+    hook: 40nextcloud
+    prompt: Nextcloud password
+    answer: secret:app
+  - id: alert_email
+    hook: 85secalerts
+    prompt: System Notifications
+    answer: admin@example.org
+# keel/instance.example.yaml of keel-nextcloud, with the secrets of the run
+instance:
+  version: 1
+  network:
+    managed_by: host
+    interfaces:
+      eth0:
+        ipv6:
+          method: auto
+  tls:
+    acme:
+      enabled: false
+  appliance:
+    name: nextcloud
+  installation:
+    mode: simple
+  overlays:
+    installer: enabled
+    wireguard: disabled
+    etcd: disabled
+    crowdsec: disabled
+    vip: disabled
+    nginx: enabled
+    coraza: disabled
+    anubis: disabled
+    syncthing: disabled
+  secrets:
+    root_password: secret:root
+    db_password: secret:db
+    app_password: secret:app
+    nextcloud_secret: {generate: true}
+    nextcloud_passwordsalt: {generate: true}
+    redis_password: {generate: true}
+    redis_session_password: {generate: true}
+  app:
+    email: admin@example.org
+    domain: localhost
+    options:
+      db_user: admin
+      admin_user: admin
+      db_name: nextcloud
+  hub:
+    api_key: skip
+  security:
+    alerts: admin@example.org
+    updates_at_first_boot: skip
+  first_login_wizard: false
+proofs:
+  - {secret: root, kind: shadow, user: root}
+  - {secret: db, kind: mysql, user: admin, host: 127.0.0.1}
+  # the administrator logs in to WebDAV with the app secret
+  - secret: app
+    kind: command
+    run: 'test "$(curl -sk -o /dev/null -w "%{http_code}" -u "admin:$SECRET" -X PROPFIND -H "Depth: 0" https://127.0.0.1/remote.php/dav/files/admin/)" = 207'
+services: [nginx, mariadb, php8.4-fpm, redis-server, webmin, cron, postfix]
+urls:
+  # status.php answers 200 even with Redis down or a read-only database
+  # (first test of 0086): it is not a health check, so the contract asks
+  # for the login page too
+  - {url: 'https://127.0.0.1/status.php', status: 200}
+  - {url: 'https://127.0.0.1/login', status: 200}
+  - {url: 'http://127.0.0.1/login', status: 200}
+  - {url: 'http://127.0.0.1/keel-health', status: 204}
+  - {url: 'https://127.0.0.1/data/nextcloud.log', status: 404}
+  - {url: 'https://127.0.0.1/config/config.php', status: 404}
+  - {url: 'https://127.0.0.1:12321/', status: 200}
+forbidden:
+  - {kind: path, name: /usr/local/lib/keel-build}
+  - {kind: mysql-database, name: keel_check}
+  - {kind: hook, name: 40lnmp-check}
+  - {kind: mysql-database, name: test}
+screenshots:
+  - {name: site, url: /}
+  - name: nextcloud-admin
+    url: /login
+    after: /apps/files/
+    login: {user_field: '#user', user: admin, password_field: '#password', secret: app, submit: 'button[type=submit]'}
+  - name: webmin
+    port: 12321
+    url: /
+    login: {user_field: 'input[name=user]', user: root, password_field: 'input[name=pass]', secret: root, submit: 'button[type=submit]'}
+    wait: 8
+    text: System hostname

@@ -12,6 +12,9 @@
 #
 # PHP_* are read by common's conf/php. The route of the overlay sets the
 # same body limit (512 MiB).
+# The fab part runs only under bt-layer, which sets FAB_PATH; the local
+# targets at the end (test, lint, coverage) need no fab.
+ifdef FAB_PATH
 PHP_MEMORY_LIMIT = 512M
 PHP_UPLOAD_MAX_FILESIZE = 512M
 PHP_POST_MAX_SIZE = 512M
@@ -38,6 +41,7 @@ define _keel_root.patched/pre
 	install -D -m 644 $(CURDIR)/keys/nextcloud-security.gpg $O/root.patched$(KEEL_BUILD_TOOLS)/nextcloud-security.gpg;
 endef
 root.patched/pre += $(_keel_root.patched/pre)
+endif
 
 # Local targets of the repository (not used by bt-layer)
 .PHONY: test lint coverage
