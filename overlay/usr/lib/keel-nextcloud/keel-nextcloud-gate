@@ -89,7 +89,7 @@ case $(nextcloud_gate_action "$before" "$after") in
         ;;
     close)
         rm -f "$NEXTCLOUD_OPEN"
-        logger -t keel-nextcloud "the node does not take writes (read_only $read_only): the site is closed"
+        logger -t keel-nextcloud "the site is closed: read_only $read_only, VIP here $vip_here, $(grep -m1 "^role=" <<< "$role_text" || echo "no role file")"
         ;;
 esac
 
