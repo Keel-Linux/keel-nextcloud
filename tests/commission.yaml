@@ -5,9 +5,11 @@
 # (inithooks refuses those names), and the cloud nodes.
 #
 # The replica of a cloud pair answers 503 by design (only the node that
-# takes writes serves, 0087). The runner runs the urls and the proofs of
-# this file on every node of the appliance, so those checks fail on the
-# replica until the runner can take urls and proofs per node.
+# takes writes serves, 0087), so the replica nodes have urls and proofs of
+# their own (keel-commission of Keel-Linux/.github takes them in place of
+# the ones below): the site answers 503 there, and the app secret is
+# proved against the administrator's hash in the database of the node
+# (cross.seeded proves that this database is the primary's).
 contract: 1
 appliance: nextcloud
 secrets: [root, db, app]
@@ -120,6 +122,14 @@ screenshots:
 # the seed of keel gives the replica the database of the primary, and the
 # gate writes the secret and the salt of that database into its
 # keel-pair.config.php.
+#
+# Round 2026-11-12 (19.0-2): seeded, pair-same, row-replicated and
+# old-primary-follows failed because the role screen of keel-init wrote no
+# database.server: keel inspect finds two servers (MariaDB and the Redis
+# of this layer) and names none, so the pair was a pair of files only. With
+# database.server written by hand on the kept pair, every check of this
+# list passed (BR1 9440 + BR2 9441, 2026-11-13). The fix is in core, not
+# in this file.
 cloud:
   capture:
     # keel1: an invite without a VIP, keel2: one that carries it (keel 0.23.83)
@@ -187,6 +197,28 @@ nodes:
       - {id: mode, prompt: Installation mode, keys: 'C{ret}'}
       - {id: role, prompt: Role of this node, keys: 'R{ret}'}
       - {id: join, prompt: Join a mesh, keys: '{invite:1}{ret}'}
+    # the gate of the replica is closed: the site answers 503, the paths
+    # that are never served 404, and the panel and the health check answer
+    urls: &replica-urls
+      - {url: 'https://127.0.0.1/status.php', status: 503}
+      - {url: 'https://127.0.0.1/login', status: 503}
+      - {url: 'http://127.0.0.1/login', status: 503}
+      - {url: 'http://127.0.0.1/keel-health', status: 204}
+      - {url: 'https://127.0.0.1/data/nextcloud.log', status: 404}
+      - {url: 'https://127.0.0.1/config/config.php', status: 404}
+      - {url: 'https://127.0.0.1:12321/', status: 200}
+    # no login over HTTP on a closed node: the app secret is the password
+    # of the administrator in the database of this node (Nextcloud stores
+    # "3|" and a password_hash). A replica that was not seeded holds a site
+    # of its own with the same secret, so this proof does not prove the
+    # seed: cross.seeded does. The hash goes to php in its environment,
+    # never as an argument.
+    proofs: &replica-proofs
+      - {secret: root, kind: shadow, user: root}
+      - {secret: db, kind: mysql, user: admin, host: 127.0.0.1}
+      - secret: app
+        kind: command
+        run: 'H="$(mysql -N -e "SELECT password FROM nextcloud.oc_users WHERE uid = ''admin''")" php -r ''$h = explode("|", (string) getenv("H"), 2); exit(count($h) == 2 && password_verify((string) getenv("SECRET"), $h[1]) ? 0 : 1);'''
     # the gate of the replica is closed: no login shot, the panel only
     screenshots:
       - name: webmin
@@ -215,6 +247,8 @@ nodes:
       - {id: mode, prompt: Installation mode, keys: 'CC{ret}'}
       - {id: role, prompt: Role of this node, keys: 'R{ret}'}
       - {id: join, prompt: Join a mesh, keys: '{invite:1}{ret}'}
+    urls: *replica-urls
+    proofs: *replica-proofs
     screenshots:
       - name: webmin
         port: 12321
