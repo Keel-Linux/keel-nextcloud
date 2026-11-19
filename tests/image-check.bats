@@ -22,7 +22,9 @@ setup() {
             /etc/systemd/system/keel-nextcloud-gate.timer \
             /etc/systemd/system/keel-nextcloud-cron.timer \
             /etc/systemd/system/keel-nextcloud-gate-watch.service \
+            /etc/systemd/system/keel-nextcloud-cron.service \
             /usr/lib/keel-nextcloud/keel-nextcloud-gate \
+            /usr/lib/keel-nextcloud/keel-nextcloud-cron \
             /usr/lib/inithooks/firstboot.d/40nextcloud \
             /usr/share/keel/appliances/nextcloud.yaml; do
         mkdir -p "$ROOT$(dirname "$file")"
@@ -87,4 +89,13 @@ SH
     run "$CHECK"
     [ "$status" -eq 1 ]
     [[ "$output" == *"40lnmp-check of lnmp is still there"* ]]
+}
+
+@test "a missing cron unit or cron program fails" {
+    rm "$ROOT/etc/systemd/system/keel-nextcloud-cron.service" \
+        "$ROOT/usr/lib/keel-nextcloud/keel-nextcloud-cron"
+    run "$CHECK"
+    [ "$status" -eq 2 ]
+    [[ "$output" == *"keel-nextcloud-cron.service is not in the image"* ]]
+    [[ "$output" == *"keel-nextcloud-cron is not in the image"* ]]
 }

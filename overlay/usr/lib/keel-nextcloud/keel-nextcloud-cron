@@ -1,0 +1,45 @@
+#!/bin/bash
+# keel-nextcloud-cron: one run of the background jobs of Nextcloud
+# (cron.php), started by keel-nextcloud-cron.service while the gate has
+# opened the site.
+#
+# Why: on a pair, the node can lose the write role while cron.php runs
+# (promotion, then return). The database becomes read-only under the run,
+# and cron.php exits 1 (SQLSTATE 1290, --read-only). The unit then stays
+# failed, because the condition of the unit skips each next start and a
+# skipped start does not clear the failed state (commissioning,
+# 2026-11-18). So when cron.php fails, this program asks whether the node
+# still takes writes:
+#   - the mark of the gate is gone, or read_only is 1: the loss of the
+#     write role cut the run. One log line, exit 0.
+#   - any other answer (read_only 0, or no answer from the database while
+#     the mark is there): exit with the code of cron.php, so a real
+#     failure of the background jobs shows as a failed unit.
+#
+# The unit runs this program as root: root reads read_only over the socket
+# of MariaDB with no password, as the gate does. cron.php runs as the web
+# user through runuser, as in keel-occ and the gate: cron.php refuses a
+# user that does not own config.php, and runuser gives the web user its
+# groups (redis, for the socket of Redis).
+set -u
+
+NEXTCLOUD_ROOT="${NEXTCLOUD_ROOT:-/var/www/nextcloud}"
+NEXTCLOUD_WEB_USER="${NEXTCLOUD_WEB_USER:-www-data}"
+NEXTCLOUD_OPEN="${NEXTCLOUD_OPEN:-/run/keel-nextcloud/open}"
+cd / || exit 1
+
+code=0
+runuser -u "$NEXTCLOUD_WEB_USER" -- php -f "$NEXTCLOUD_ROOT/cron.php" || code=$?
+[[ $code -eq 0 ]] && exit 0
+
+# cut REASON: the run failed because the node lost the write role
+cut() {
+    logger -t keel-nextcloud "cron.php exited $code: the loss of the write role cut the run ($1)"
+    exit 0
+}
+
+[[ -e "$NEXTCLOUD_OPEN" ]] || cut "the site is closed"
+read_only=$(mysql --batch --skip-column-names --execute='SELECT @@global.read_only' 2> /dev/null) \
+    || read_only=unknown
+[[ "$read_only" == 1 ]] && cut "the database is read-only"
+exit "$code"

@@ -7,7 +7,7 @@
 # boot hooks of the database. The delta of this recipe: the PHP modules of
 # Nextcloud, Redis, the Nextcloud code tree (pinned by sha256 and checked
 # against the signature of Nextcloud), its route in keel-default.d, the
-# gate, the cron timer, the first boot hook and the manifest. conf.d/main
+# gate, the cron timer and its program, the first boot hook and the manifest. conf.d/main
 # removes the check page of lnmp.
 #
 # PHP_* are read by common's conf/php. The route of the overlay sets the
@@ -51,6 +51,7 @@ lint:
 	shellcheck -x overlay/usr/lib/inithooks/lib/nextcloud.sh \
 	    overlay/usr/lib/inithooks/firstboot.d/40nextcloud \
 	    overlay/usr/lib/keel-nextcloud/keel-nextcloud-gate \
+	    overlay/usr/lib/keel-nextcloud/keel-nextcloud-cron \
 	    overlay/usr/local/bin/keel-occ bin/keel-nextcloud-image-check \
 	    conf.d/main tests/coverage.sh
 coverage:

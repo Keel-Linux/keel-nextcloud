@@ -7,5 +7,8 @@ ConditionPathExists=/run/keel-nextcloud/open
 
 [Service]
 Type=oneshot
-User=www-data
-ExecStart=/usr/bin/php -f /var/www/nextcloud/cron.php
+# keel-nextcloud-cron runs as root and runs cron.php as www-data. When the
+# node loses the write role during a run, cron.php fails and the program
+# exits 0, so the unit does not stay failed. Any other failure of cron.php
+# fails the unit. The program says why it runs as root.
+ExecStart=/usr/lib/keel-nextcloud/keel-nextcloud-cron
