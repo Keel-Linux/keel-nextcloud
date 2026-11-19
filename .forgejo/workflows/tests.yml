@@ -1,8 +1,8 @@
 # Tests of the keel-nextcloud appliance recipe (decision 0006 point 4), on
 # the self-hosted runners of Forgejo (decision 0056):
 #   tests:      the first boot library, the first boot hook, the gate,
-#               keel-occ and the image check, under bats and kcov, threshold
-#               committed here
+#               the cron program, keel-occ and the image check, under
+#               bats and kcov, threshold committed here
 #   appliance:  fetch the published layer, verify it, assemble it and boot
 #               it in LXC; no layer is published yet (allow_unpublished)
 #   commission: the commissioning contract, tests/commission.yaml (0075)
@@ -19,7 +19,7 @@ permissions:
 
 jobs:
   tests:
-    # tests/coverage.sh measures five shell files. The threshold is the
+    # tests/coverage.sh measures six shell files. The threshold is the
     # lowest of them (the gate, 95.35 percent) rounded down, and is only
     # ever raised (decision 0006); the project floor is 90. This job
     # produces the check "tests / coverage".

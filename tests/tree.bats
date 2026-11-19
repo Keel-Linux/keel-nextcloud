@@ -33,8 +33,9 @@ _executable() {
     _executable overlay/usr/lib/inithooks/bin
 }
 
-@test "the gate, keel-occ and the image check are executable" {
+@test "the gate, the cron program, keel-occ and the image check are executable" {
     [ -x "$REPO/overlay/usr/lib/keel-nextcloud/keel-nextcloud-gate" ]
+    [ -x "$REPO/overlay/usr/lib/keel-nextcloud/keel-nextcloud-cron" ]
     [ -x "$REPO/overlay/usr/local/bin/keel-occ" ]
     [ -x "$REPO/bin/keel-nextcloud-image-check" ]
 }

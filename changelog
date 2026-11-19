@@ -1,3 +1,20 @@
+keel-nextcloud-19.0 (4) keel; urgency=medium
+
+  * keel-nextcloud-cron.service runs the new program
+    /usr/lib/keel-nextcloud/keel-nextcloud-cron in place of php. On a
+    cloud pair the node can lose the write role while cron.php runs: the
+    database becomes read-only, cron.php exits 1 and the unit stayed
+    failed, because the condition skips each next start and a skipped
+    start does not clear the failed state (the replica of cloud_advanced,
+    commissioning, 2026-11-18). Now, when cron.php fails and the mark of
+    the gate is gone or read_only is 1, the program writes one log line
+    and exits 0. Any other failure of cron.php still fails the unit. The
+    unit runs as root, to read read_only over the socket of MariaDB, and
+    the program runs cron.php as www-data through runuser.
+  * The image check finds keel-nextcloud-cron.service and the program.
+
+ -- KeelLinux maintainers <admin@keellinux.org>  Thu, 19 Nov 2026 00:00:00 +0000
+
 keel-nextcloud-19.0 (3) keel; urgency=medium
 
   * The front of keel-web (keel-front.d) answers the paths that the site

@@ -24,6 +24,7 @@ What is in it
 ``overlay/usr/lib/inithooks/lib/nextcloud.sh``                  the logic, as functions with no side effects
 ``overlay/usr/lib/inithooks/bin/nextcloud.py``                  the dialog of keel-init for the administrator password
 ``overlay/usr/lib/keel-nextcloud/keel-nextcloud-gate``          opens the site only on the writer, empties Redis first, follows an upgrade on a replica
+``overlay/usr/lib/keel-nextcloud/keel-nextcloud-cron``          runs cron.php as the web user; a run that the loss of the write role cuts does not fail the unit
 ``overlay/etc/systemd/system/keel-nextcloud-*``                 the gate watcher (each address event), the gate timer (5 s), the cron timer (5 min, only while the gate is open)
 ``overlay/etc/nginx/keel-default.d/60-keel-nextcloud.conf``     the route in the default site of keel-web
 ``overlay/etc/nginx/keel-front.d/60-keel-nextcloud.conf``       the sync clients past Anubis, the body limit
@@ -40,7 +41,7 @@ Tests
 ::
 
     make lint        # shellcheck, clean
-    make test        # 121 bats tests
+    make test        # 132 bats tests
     make coverage    # kcov; 95 to 100 percent per file, threshold 90
 
 ``tests/commission.yaml`` is the contract of 0075. The image 19.0-1 failed
