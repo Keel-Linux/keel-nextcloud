@@ -4,7 +4,7 @@
 #               the cron program, keel-occ and the image check, under
 #               bats and kcov, threshold committed here
 #   appliance:  fetch the published layer, verify it, assemble it and boot
-#               it in LXC; no layer is published yet (allow_unpublished)
+#               it in LXC
 #   commission: the commissioning contract, tests/commission.yaml (0075)
 #   package:    a change that ships needs an entry in ./changelog
 name: tests
@@ -40,7 +40,6 @@ jobs:
       appliance: nextcloud
       parent: lnmp
       timeout: 60
-      allow_unpublished: true
   commission:
     # keel-commission --check of Keel-Linux/.github reads the contract and
     # says whether it is valid. It runs no machine. Check
