@@ -28,11 +28,9 @@ jobs:
     with:
       threshold: 95
   appliance:
-    # The boot test of the published layer (test-appliance.yml). No layer
-    # of nextcloud is on the mirror yet, so the job says that nothing was
-    # booted; the exemption becomes an error when the layer is published,
-    # and the line then must go, with a tests/boot-test.sh in this
-    # repository. Check "appliance / boot-published-layer".
+    # The boot test of the published layer (test-appliance.yml): it pulls
+    # the nextcloud layer from the mirror, verifies it, and runs
+    # tests/boot-test.sh. Check "appliance / boot-published-layer".
     if: vars.KEEL_LXC_RUNNER == 'true'
     runs-on: keel-lxc
     uses: keel-linux/.github/.github/workflows/test-appliance.yml@main

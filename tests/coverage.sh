@@ -1,8 +1,9 @@
 #!/bin/bash
 # Line coverage of the shell this project writes, measured with kcov over
 # the bats suite (decision 0004). The measured files are the first boot
-# library, the first boot hook, the gate, the cron program, keel-occ and
-# the image check.
+# library, the first boot hook, the gate, the cron program, keel-occ, the
+# image check and the logic of the boot test (tests/lib/boot-test-lib.sh).
+# tests/boot-test.sh is the thin main that runs keel and LXC as root.
 # conf.d/main needs a chroot, a network and a build host, and is not
 # measured here. Exits 1 below the threshold, 2 when a tool is missing.
 #
@@ -21,7 +22,7 @@ done
 
 report="${COVERAGE_DIR:-$(mktemp -d)}"
 mkdir -p "$report"
-kcov --include-pattern=/lib/nextcloud.sh,/firstboot.d/40nextcloud,/keel-nextcloud/keel-nextcloud-gate,/keel-nextcloud/keel-nextcloud-cron,/bin/keel-occ,/bin/keel-nextcloud-image-check \
+kcov --include-pattern=/lib/nextcloud.sh,/firstboot.d/40nextcloud,/keel-nextcloud/keel-nextcloud-gate,/keel-nextcloud/keel-nextcloud-cron,/bin/keel-occ,/bin/keel-nextcloud-image-check,/tests/lib/boot-test-lib.sh \
     "$report" bats "$here" > "$report/bats.out" 2>&1 \
     || { tail -n 40 "$report/bats.out" >&2; echo "bats failed under kcov" >&2; exit 1; }
 
