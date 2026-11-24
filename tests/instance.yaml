@@ -1,0 +1,78 @@
+# Instance description of the boot test (format: docs/spec.md of the keel
+# repository). IPv6 first, address from the bridge, no certificate request.
+#
+# The three passwords are files the test writes into the rootfs before
+# booting: nothing is typed at the console, the installer of Nextcloud never
+# appears, and after the first boot the administrator logs in to WebDAV with
+# exactly the value in etc/keel/secrets/app_password.
+#
+# app.domain is localhost, as in tests/commission.yaml: the container's
+# address is not known until it boots. The test asks status.php over the
+# IPv6 address and the other routes on 127.0.0.1 inside the container.
+#
+# This is the throwaway container the gate boots. The description an operator
+# would start from is keel/instance.example.yaml.
+version: 1
+
+instance:
+  hostname: nextcloud
+  fqdn: nextcloud.example.org
+
+network:
+  # The container's address comes from the bridge, so the host owns the
+  # interface configuration and 01ipconfig writes nothing.
+  managed_by: host
+  interfaces:
+    eth0:
+      ipv6:
+        method: auto
+
+tls:
+  acme:
+    enabled: false
+
+appliance:
+  name: nextcloud
+installation:
+  mode: simple
+overlays:
+  installer: enabled
+  wireguard: disabled
+  etcd: disabled
+  crowdsec: disabled
+  vip: disabled
+  nginx: enabled
+  coraza: disabled
+  anubis: disabled
+  syncthing: disabled
+
+secrets:
+  root_password:
+    file: /etc/keel/secrets/root_password
+  # Renders to DB_PASS: the lnmp layer's 35mysqlpass gives it to the 'admin'
+  # account, which app.options.db_user names. The site does not use it: it
+  # logs in over the socket as www-data with no password.
+  db_password:
+    file: /etc/keel/secrets/db_password
+  # Renders to APP_PASS: the Nextcloud administrator. The boot test logs in
+  # to WebDAV with it.
+  app_password:
+    file: /etc/keel/secrets/app_password
+
+app:
+  email: admin@example.org
+  domain: localhost
+  options:
+    db_user: admin
+    admin_user: admin
+    db_name: nextcloud
+
+hub:
+  api_key: skip
+
+security:
+  alerts: skip
+  # A first boot input, not machine state. diff does not compare it.
+  updates_at_first_boot: skip
+
+first_login_wizard: false
