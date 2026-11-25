@@ -1,3 +1,30 @@
+keel-nextcloud-19.0 (5) keel; urgency=medium
+
+  * keel-nextcloud-cron does not fail the unit when an outage cuts a run
+    (issue 7). In the upgrade tests of keel 0.23.98 and 0.23.100 a Debian
+    upgrade of MariaDB stopped the database during a run of cron.php
+    before the gate removed its mark. The program read "no answer" from
+    the database with the mark still there and failed the unit. The gate
+    then closed the site, the condition skipped each next start, and a
+    skipped start does not clear the failed state: the node was degraded
+    for all of the outage and up to one interval after it (20 minutes on
+    2026-11-24).
+  * Before the run: when the database does not answer or is read-only,
+    or Redis does not answer, cron.php does not start. One log line, exit
+    0.
+  * After a failed run: the database or Redis does not answer or started
+    again during the run, maintenance mode, no readable version.php, or
+    the code and config.php at other versions: one log line, exit 0. The
+    loss of the write role (19.0-4) stays as it was.
+  * Any other failure is real. The program counts the real failures in a
+    row in /run/keel-nextcloud/cron-failures. Failures 1 and 2 log a
+    warning; the third and each next one log an error and fail the unit
+    with the code of cron.php. A run that passes sets the count to zero.
+  * tests/cron.bats: the outage cases, the count, and a check that the
+    unit has no Restart= and no Requires=, BindsTo= or PartOf=.
+
+ -- KeelLinux maintainers <admin@keellinux.org>  Wed, 25 Nov 2026 00:00:00 +0000
+
 keel-nextcloud-19.0 (4) keel; urgency=medium
 
   * keel-nextcloud-cron.service runs the new program
