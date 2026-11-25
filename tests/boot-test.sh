@@ -22,7 +22,9 @@
 #   6. the administrator logs in to WebDAV with the declared app_password,
 #      and a wrong password is refused
 #   7. the background jobs run from the keel-nextcloud-cron units
-#   8. keel diff reports no drift between the spec and the machine
+#   8. the init fence is down after the first boot, and keel's ruleset holds
+#      no rule of it (keel#322)
+#   9. keel diff reports no drift between the spec and the machine
 #
 # Called by the reusable workflow test-appliance.yml after keel pull and keel
 # verify; runnable by hand as root on any host with LXC. It builds nothing:
@@ -217,6 +219,19 @@ timer=$(inside "systemctl is-enabled $BT_CRON_TIMER 2>/dev/null" || true)
 load=$(inside "systemctl show -p LoadState --value $BT_CRON_SERVICE" || true)
 active=$(inside "systemctl show -p ActiveState --value $BT_CRON_SERVICE" || true)
 bt_cron_verdict "$mode" "$timer" "$load" "$active"
+
+# 12b. The init fence is down, and keel's ruleset holds no rule of it
+#      (keel#322). No person applies before this check. What systemd and
+#      the journal say of the fence is printed first, so a failure here
+#      names its cause.
+fence=$(inside "systemctl is-enabled turnkey-init-fence.service 2>/dev/null" || true)
+rules=$(grep -c 'ct status dnat' "$BT_ROOTFS/etc/keel/firewall/keel-manifest.nft" || true)
+keel_version=$(inside "dpkg-query -W -f '\${Version}' keel" || true)
+log "turnkey-init-fence.service: ${fence:-unknown}; ct status dnat lines in keel's ruleset: ${rules:-none}"
+inside "systemctl show -p ActiveState -p SubState -p Result -p ExecMainStatus turnkey-init-fence.service; \
+    journalctl -b --no-pager -o short-monotonic -u turnkey-init-fence.service | tail -n 30; \
+    cat /var/lib/inithooks/deferred 2>/dev/null" || true
+bt_fence_verdict "${fence:-unknown}" "${rules:-}" "${keel_version:-unknown}"
 
 # 13. No drift between the declared spec and the booted root.
 set +e
