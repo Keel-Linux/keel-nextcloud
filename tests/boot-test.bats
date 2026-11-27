@@ -368,6 +368,31 @@ DEF
     [[ $output == *"failed with exit 127"* ]]
 }
 
+@test "fence_verdict: the fence down and no fence rule in the ruleset pass" {
+    run bt_fence_verdict disabled 0 0.23.105
+    [ "$status" -eq 0 ]
+    [[ $output == *"the init fence is down, and keel's ruleset holds no rule of it"* ]]
+}
+
+@test "fence_verdict: a fence still enabled after the first boot fails" {
+    run bt_fence_verdict enabled 1 0.23.105
+    [ "$status" -eq 1 ]
+    [[ $output == *"turnkey-init-fence.service is 'enabled' after the first boot"* ]]
+}
+
+@test "fence_verdict: a fence rule left in the ruleset fails and names keel's version (keel#322)" {
+    run bt_fence_verdict disabled 1 0.23.105
+    [ "$status" -eq 1 ]
+    [[ $output == *"still holds the rule of the init fence (ct status dnat, keel#322)"* ]]
+    [[ $output == *"keel 0.23.105 in the container"* ]]
+}
+
+@test "fence_verdict: a count that is not a number fails" {
+    run bt_fence_verdict disabled "" 0.23.105
+    [ "$status" -eq 1 ]
+    [[ $output == *"cannot be read"* ]]
+}
+
 # the verdicts this appliance adds
 
 STATUS_OK='{"installed":true,"maintenance":false,"needsDbUpgrade":false,"version":"32.0.1.2","versionstring":"32.0.1","edition":"","productname":"Nextcloud","extendedSupport":false}'

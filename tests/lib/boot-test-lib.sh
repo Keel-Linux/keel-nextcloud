@@ -457,6 +457,33 @@ bt_cron_verdict() {
     echo "boot-test: background jobs mode cron, $BT_CRON_TIMER enabled, $BT_CRON_SERVICE loaded ($active)"
 }
 
+bt_fence_verdict() {
+    # bt_fence_verdict ENABLED RULES KEEL: the init fence after the first
+    # boot. ENABLED is what systemctl is-enabled says of
+    # turnkey-init-fence.service, RULES the count of `ct status dnat` lines
+    # in /etc/keel/firewall/keel-manifest.nft, KEEL the version of keel in
+    # the container. The spec declares every answer, so hook 97 disables
+    # and stops the fence, and keel firewall refresh (keel#322) writes the
+    # ruleset again without the fence rule. A rule that stays is a real
+    # fence leftover, and keel diff --root says drift for it: this says
+    # which one it is. No apply runs before this check.
+    local enabled=$1 rules=$2 keel=${3:-unknown}
+    if [ "$enabled" = enabled ]; then
+        echo "boot-test: turnkey-init-fence.service is 'enabled' after the first boot: a hook left a question to keel-init, or AUTO_RUN is set" >&2
+        return 1
+    fi
+    case "$rules" in
+        ''|*[!0-9]*)
+            echo "boot-test: keel's ruleset cannot be read for the rule of the init fence ('$rules')" >&2
+            return 1 ;;
+    esac
+    if [ "$rules" -gt 0 ]; then
+        echo "boot-test: the init fence is down, and keel's ruleset still holds the rule of the init fence (ct status dnat, keel#322); keel $keel in the container" >&2
+        return 1
+    fi
+    echo "boot-test: the init fence is down, and keel's ruleset holds no rule of it"
+}
+
 bt_diff_verdict() {
     # bt_diff_verdict CODE: interprets the exit code of keel diff
     # (docs/diff.md of the keel repository). 0 and 13 mean no drift.
