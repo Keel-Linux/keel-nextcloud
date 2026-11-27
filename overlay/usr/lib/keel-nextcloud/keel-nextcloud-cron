@@ -3,43 +3,185 @@
 # (cron.php), started by keel-nextcloud-cron.service while the gate has
 # opened the site.
 #
-# Why: on a pair, the node can lose the write role while cron.php runs
-# (promotion, then return). The database becomes read-only under the run,
-# and cron.php exits 1 (SQLSTATE 1290, --read-only). The unit then stays
-# failed, because the condition of the unit skips each next start and a
-# skipped start does not clear the failed state (commissioning,
-# 2026-11-18). So when cron.php fails, this program asks whether the node
-# still takes writes:
+# Why: a failed run of a oneshot unit stays "failed" until the next run
+# that passes. The condition of the unit (the mark of the gate) skips each
+# start while the site is closed, and a skipped start does not clear the
+# failed state (commissioning, 2026-11-18). So a run that an outage cuts
+# must not fail the unit, or the node shows "degraded" for all of the
+# outage and up to one interval of the timer after it (issue 7: the
+# upgrade tests of keel 0.23.98 and 0.23.100, a Debian upgrade of MariaDB
+# stopped the database during a run, and the unit stayed failed for
+# 20 minutes).
+#
+# Before the run: when the database does not answer, is read-only, or
+# Redis does not answer, cron.php does not start. One log line, exit 0.
+#
+# When cron.php fails, this program asks why:
 #   - the mark of the gate is gone, or read_only is 1: the loss of the
-#     write role cut the run. One log line, exit 0.
-#   - any other answer (read_only 0, or no answer from the database while
-#     the mark is there): exit with the code of cron.php, so a real
-#     failure of the background jobs shows as a failed unit.
+#     write role cut the run (keel-nextcloud#5). One log line, exit 0.
+#   - the database or Redis does not answer, or started again during the
+#     run, Nextcloud is in maintenance mode, or the code tree is in an
+#     upgrade (no readable version.php, or the code and config.php are at
+#     other versions): an outage cut the run. One log line, exit 0.
+#   - none of these: a real failure. The program counts the real failures
+#     in a row. Below NEXTCLOUD_CRON_FAILURE_LIMIT (3) it logs a warning
+#     and exits 0. At the limit and after it, it logs an error and exits
+#     with the code of cron.php, so the unit fails and the node shows
+#     "degraded". A run that passes sets the count to zero. A run that an
+#     outage cut does not change the count.
+#
+# Why 3: one outage can cut two runs (the 0.23.100 test: the timer elapsed
+# during a run of 8 minutes, and the next run started 3 s after the first
+# failed). A restart of the database that is shorter than the check can
+# also give one failure while the database answers again. So 1 or 2
+# failures are not a proof. 3 failures in a row with the database and
+# Redis up are 10 to 15 minutes of background jobs that do not run, and
+# that is a real fault.
+#
+# The count is in /run/keel-nextcloud: not in a folder that Syncthing
+# replicates, and a boot starts it again at zero.
 #
 # The unit runs this program as root: root reads read_only over the socket
-# of MariaDB with no password, as the gate does. cron.php runs as the web
-# user through runuser, as in keel-occ and the gate: cron.php refuses a
-# user that does not own config.php, and runuser gives the web user its
-# groups (redis, for the socket of Redis).
+# of MariaDB with no password, as the gate does. cron.php connects to the
+# same local server (dbhost localhost:/run/mysqld/mysqld.sock on each node).
+# cron.php runs as the web user through runuser, as in keel-occ and the
+# gate: cron.php refuses a user that does not own config.php, and runuser
+# gives the web user its groups (redis, for the socket of Redis).
 set -u
 
-NEXTCLOUD_ROOT="${NEXTCLOUD_ROOT:-/var/www/nextcloud}"
-NEXTCLOUD_WEB_USER="${NEXTCLOUD_WEB_USER:-www-data}"
-NEXTCLOUD_OPEN="${NEXTCLOUD_OPEN:-/run/keel-nextcloud/open}"
+NEXTCLOUD_LIB="${NEXTCLOUD_LIB:-/usr/lib/inithooks/lib/nextcloud.sh}"
+# shellcheck source=../inithooks/lib/nextcloud.sh
+source "$NEXTCLOUD_LIB"
+
+NEXTCLOUD_CRON_FAILURES="${NEXTCLOUD_CRON_FAILURES:-/run/keel-nextcloud/cron-failures}"
+NEXTCLOUD_CRON_FAILURE_LIMIT="${NEXTCLOUD_CRON_FAILURE_LIMIT:-3}"
+[[ $NEXTCLOUD_CRON_FAILURE_LIMIT =~ ^[1-9][0-9]*$ ]] || NEXTCLOUD_CRON_FAILURE_LIMIT=3
 cd / || exit 1
 
-code=0
-runuser -u "$NEXTCLOUD_WEB_USER" -- php -f "$NEXTCLOUD_ROOT/cron.php" || code=$?
-[[ $code -eq 0 ]] && exit 0
-
-# cut REASON: the run failed because the node lost the write role
-cut() {
-    logger -t keel-nextcloud "cron.php exited $code: the loss of the write role cut the run ($1)"
-    exit 0
+# read_only: @@global.read_only of the local server, or "unknown"
+read_only() {
+    local value
+    value=$(mysql --batch --skip-column-names --execute='SELECT @@global.read_only' 2> /dev/null) \
+        || value=unknown
+    echo "$value"
 }
 
-[[ -e "$NEXTCLOUD_OPEN" ]] || cut "the site is closed"
-read_only=$(mysql --batch --skip-column-names --execute='SELECT @@global.read_only' 2> /dev/null) \
-    || read_only=unknown
-[[ "$read_only" == 1 ]] && cut "the database is read-only"
-exit "$code"
+# db_uptime: the seconds since the local server started, or nothing
+db_uptime() {
+    mysql --batch --skip-column-names \
+        --execute="SELECT VARIABLE_VALUE FROM information_schema.GLOBAL_STATUS WHERE VARIABLE_NAME='UPTIME'" \
+        2> /dev/null || true
+}
+
+# redis_info: the INFO server lines of Redis with no CR; fails when Redis
+# does not answer. The default user of Redis may run INFO with no password.
+redis_info() {
+    local info
+    info=$(redis-cli -s "$NEXTCLOUD_REDIS_SOCKET" INFO server 2> /dev/null) || return 1
+    info=${info//$'\r'/}
+    grep -q '^redis_version:' <<< "$info" || return 1
+    printf '%s\n' "$info"
+}
+
+# config_value KEY: the value of KEY in config.php, read as the web user.
+# The PHP code is in single quotes on purpose (SC2016).
+# shellcheck disable=SC2016
+config_value() {
+    runuser -u "$NEXTCLOUD_WEB_USER" -- php -r \
+        '$CONFIG = []; include $argv[1]; echo $CONFIG[$argv[2]] ?? "";' "$NEXTCLOUD_CONFIG" "$1" 2> /dev/null
+}
+
+# restarted UPTIME ELAPSED: UPTIME is a number of seconds no longer than
+# the run
+restarted() {
+    [[ ${1-} =~ ^[0-9]+$ ]] && (($1 <= $2))
+}
+
+# not_ready: why cron.php must not start now, or nothing
+not_ready() {
+    case $(read_only) in
+        unknown) echo "the database does not answer" ;;
+        1) echo "the database is read-only" ;;
+        *) redis_info > /dev/null || echo "Redis does not answer" ;;
+    esac
+}
+
+# outage ELAPSED: why a failed run was cut by an outage ("role: ..." for
+# the loss of the write role, "outage: ..." for the others), or nothing
+# for a real failure
+outage() {
+    local elapsed=$1 ro info code config
+    [[ -e "$NEXTCLOUD_OPEN" ]] || { echo "role:the site is closed"; return; }
+    ro=$(read_only)
+    [[ "$ro" == 1 ]] && { echo "role:the database is read-only"; return; }
+    [[ "$ro" == unknown ]] && { echo "outage:the database does not answer"; return; }
+    restarted "$(db_uptime)" "$elapsed" && { echo "outage:the database started again during the run"; return; }
+    info=$(redis_info) || { echo "outage:Redis does not answer"; return; }
+    restarted "$(sed -n 's/^uptime_in_seconds://p' <<< "$info")" "$elapsed" \
+        && { echo "outage:Redis started again during the run"; return; }
+    [[ "$(config_value maintenance)" =~ ^(1|true)$ ]] \
+        && { echo "outage:Nextcloud is in maintenance mode"; return; }
+    code=$(nextcloud_code_version "$NEXTCLOUD_ROOT/version.php") \
+        || { echo "outage:the code tree has no readable version.php: an upgrade of the image"; return; }
+    config=$(config_value version)
+    [[ "$code" == "$config" ]] || echo "outage:the code is at $code and config.php at $config: an upgrade"
+}
+
+# failures: the count of real failures in a row, 0 when there is none
+failures() {
+    local count
+    count=$(cat "$NEXTCLOUD_CRON_FAILURES" 2> /dev/null) || count=0
+    [[ $count =~ ^[0-9]+$ ]] || count=0
+    echo "$count"
+}
+
+# real_failure CODE: count it; exit 0 below the limit, CODE at the limit
+real_failure() {
+    local code=$1 count
+    count=$(($(failures) + 1))
+    if ! { mkdir -p "$(dirname "$NEXTCLOUD_CRON_FAILURES")" \
+        && echo "$count" > "$NEXTCLOUD_CRON_FAILURES"; } 2> /dev/null; then
+        logger -t keel-nextcloud -p user.err \
+            "cron.php exited $code and the count $NEXTCLOUD_CRON_FAILURES cannot be written: the unit fails"
+        exit "$code"
+    fi
+    if ((count < NEXTCLOUD_CRON_FAILURE_LIMIT)); then
+        logger -t keel-nextcloud -p user.warning \
+            "cron.php exited $code with the database and Redis up: failure $count of $NEXTCLOUD_CRON_FAILURE_LIMIT in a row; at $NEXTCLOUD_CRON_FAILURE_LIMIT the unit fails"
+        exit 0
+    fi
+    logger -t keel-nextcloud -p user.err \
+        "cron.php exited $code with the database and Redis up: failure $count in a row, the unit fails"
+    exit "$code"
+}
+
+why=$(not_ready)
+if [[ -n "$why" ]]; then
+    logger -t keel-nextcloud -p user.notice "cron.php does not start: $why"
+    exit 0
+fi
+
+started=$SECONDS
+code=0
+runuser -u "$NEXTCLOUD_WEB_USER" -- php -f "$NEXTCLOUD_ROOT/cron.php" || code=$?
+if [[ $code -eq 0 ]]; then
+    count=$(failures)
+    rm -f "$NEXTCLOUD_CRON_FAILURES"
+    if ((count > 0)); then
+        logger -t keel-nextcloud "cron.php passes again after $count failures in a row"
+    fi
+    exit 0
+fi
+
+why=$(outage $((SECONDS - started)))
+case $why in
+    role:*)
+        logger -t keel-nextcloud "cron.php exited $code: the loss of the write role cut the run (${why#role:})"
+        exit 0
+        ;;
+    outage:*)
+        logger -t keel-nextcloud -p user.notice "cron.php exited $code: an outage cut the run (${why#outage:})"
+        exit 0
+        ;;
+esac
+real_failure "$code"
