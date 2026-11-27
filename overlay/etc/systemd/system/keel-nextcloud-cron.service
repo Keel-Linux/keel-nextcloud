@@ -7,8 +7,14 @@ ConditionPathExists=/run/keel-nextcloud/open
 
 [Service]
 Type=oneshot
-# keel-nextcloud-cron runs as root and runs cron.php as www-data. When the
-# node loses the write role during a run, cron.php fails and the program
-# exits 0, so the unit does not stay failed. Any other failure of cron.php
-# fails the unit. The program says why it runs as root.
+# keel-nextcloud-cron runs as root and runs cron.php as www-data. A run
+# that the loss of the write role or an outage cuts (the database or Redis
+# down or restarted, maintenance mode, an upgrade of the code) exits 0, so
+# the unit does not stay failed while the gate skips the next starts. 3
+# real failures in a row fail the unit. The program says why it runs as
+# root and why 3.
+#
+# No Restart= and no Requires=, BindsTo= or PartOf= on mariadb or redis:
+# the timer starts the next run, and a stop of the database must not stop
+# this unit or its timer (tests/cron.bats).
 ExecStart=/usr/lib/keel-nextcloud/keel-nextcloud-cron

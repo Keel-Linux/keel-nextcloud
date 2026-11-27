@@ -110,12 +110,6 @@ screenshots:
     url: /login
     after: /apps/files/
     login: {user_field: '#user', user: admin, password_field: '#password', secret: app, submit: 'button[type=submit]'}
-  - name: webmin
-    port: 12321
-    url: /
-    login: {user_field: 'input[name=user]', user: root, password_field: 'input[name=pass]', secret: root, submit: 'button[type=submit]'}
-    wait: 8
-    text: System hostname
 # The cloud modes (decision 0076), in the shape of keel-wordpress. The
 # prompts are the titles of the confconsole screens. keel-init runs
 # 40nextcloud before 75keel-role, so each node makes its own site first;
@@ -219,14 +213,12 @@ nodes:
       - secret: app
         kind: command
         run: 'H="$(mysql -N -e "SELECT password FROM nextcloud.oc_users WHERE uid = ''admin''")" php -r ''$h = explode("|", (string) getenv("H"), 2); exit(count($h) == 2 && password_verify((string) getenv("SECRET"), $h[1]) ? 0 : 1);'''
-    # the gate of the replica is closed: no login shot, the panel only
+    # the gate of the replica is closed, and Webmin answers only on the
+    # access network (decision 0098): the one shot of the replica is its
+    # health answer, which keeps the site and login shots of the primary
+    # off this node
     screenshots:
-      - name: webmin
-        port: 12321
-        url: /
-        login: {user_field: 'input[name=user]', user: root, password_field: 'input[name=pass]', secret: root, submit: 'button[type=submit]'}
-        wait: 8
-        text: System hostname
+      - {name: health, scheme: http, port: 80, url: /keel-health}
   # cloud advanced (decision 0076): the primary and the Keel Core witness
   # on BR1, the replica on BR2. The names differ from the nodes of cloud
   # simple: a record names each check NODE:CHECK.
@@ -249,13 +241,12 @@ nodes:
       - {id: join, prompt: Join a mesh, keys: '{invite:1}{ret}'}
     urls: *replica-urls
     proofs: *replica-proofs
+    # the gate of the replica is closed, and Webmin answers only on the
+    # access network (decision 0098): the one shot of the replica is its
+    # health answer, which keeps the site and login shots of the primary
+    # off this node
     screenshots:
-      - name: webmin
-        port: 12321
-        url: /
-        login: {user_field: 'input[name=user]', user: root, password_field: 'input[name=pass]', secret: root, submit: 'button[type=submit]'}
-        wait: 8
-        text: System hostname
+      - {name: health, scheme: http, port: 80, url: /keel-health}
   - name: witness
     site: br1
     mode: cloud_advanced
